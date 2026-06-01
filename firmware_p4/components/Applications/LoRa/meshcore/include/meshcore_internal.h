@@ -85,10 +85,75 @@ uint8_t mc_build_path_len(uint8_t hash_size_sel, uint8_t count);
 uint8_t mc_parse_hash_size(uint8_t sel);
 
 /**
+ * @brief Plain SHA-256 of an arbitrary buffer.
+ */
+void meshcore_crypto_sha256(const uint8_t *data, size_t len, uint8_t out[32]);
+
+/**
+ * @brief AES-ECB encrypt + HMAC-SHA256 truncated MAC prefix.
+ */
+int meshcore_crypto_encrypt_mac(const uint8_t *shared_secret,
+                                uint8_t *dest,
+                                const uint8_t *src,
+                                int src_len);
+
+/**
+ * @brief Verify HMAC prefix and AES-ECB decrypt. Returns plaintext length, 0 on fail.
+ */
+int meshcore_crypto_mac_decrypt(const uint8_t *shared_secret,
+                                uint8_t *dest,
+                                const uint8_t *src,
+                                int src_len);
+
+/**
+ * @brief Parse a raw wire packet into a view. Returns false on malformed input.
+ */
+bool meshcore_packet_parse(const uint8_t *raw, uint16_t raw_len, meshcore_packet_view_t *out);
+
+/**
+ * @brief 8-byte content hash used for dedup.
+ */
+void meshcore_packet_hash(const meshcore_packet_view_t *pkt, uint8_t out[8]);
+
+/**
+ * @brief Build a self-advert wire packet (signed). Returns packet length, 0 on error.
+ */
+uint16_t meshcore_packet_build_advert(const meshcore_identity_t *identity,
+                                      int32_t lat_e6,
+                                      int32_t lon_e6,
+                                      bool has_latlon,
+                                      uint32_t unix_ts,
+                                      uint8_t *out,
+                                      uint16_t out_cap);
+
+/**
+ * @brief Build an encrypted group-text wire packet. Returns packet length, 0 on error.
+ */
+uint16_t meshcore_packet_build_grp_txt(uint8_t channel_hash,
+                                       const uint8_t channel_secret[32],
+                                       const char *sender_name,
+                                       const char *text,
+                                       uint32_t unix_ts,
+                                       uint8_t *out,
+                                       uint16_t out_cap);
+
+/**
  * @brief sha256(a || b)[:out_len]. Used for ACK CRC.
  */
 void mc_sha256_two(
     uint8_t *out, size_t out_len, const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len);
+
+/**
+ * @brief X25519 ECDH derived from an Ed25519 keypair (libsodium-backed).
+ *
+ * Converts both keys to Curve25519 form and performs scalar multiplication.
+ * Used by router to derive per-peer shared secrets for DM encryption.
+ *
+ * @param[out] out_shared   32-byte shared secret.
+ * @param      peer_pub_key Peer's 32-byte Ed25519 public key.
+ * @param      my_sk        Local 64-byte Ed25519 secret key (libsodium format).
+ */
+void mc_x25519(uint8_t out_shared[32], const uint8_t peer_pub_key[32], const uint8_t my_sk[64]);
 
 /* DB internal (meshcore_db.c) */
 bool mc_dedup_check_add(const uint8_t hash[8]);
