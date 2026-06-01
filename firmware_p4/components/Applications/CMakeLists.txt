@@ -70,6 +70,7 @@ file(GLOB_RECURSE WIFI_APP_SRCS "wifi/*.c")
 file(GLOB_RECURSE NFC_APP_SRCS "nfc/*.c")
 file(GLOB_RECURSE RFID_APP_SRCS "rfid/*.c")
 file(GLOB_RECURSE RNODE_APP_SRCS "LoRa/rnode/*.c")
+file(GLOB MESHCORE_APP_SRCS "LoRa/meshcore/*.c")
 file(GLOB MESHTASTIC_APP_SRCS "LoRa/meshtastic/*.c")
 
 idf_component_register(SRCS 
@@ -78,6 +79,7 @@ idf_component_register(SRCS
   ${NFC_APP_SRCS}
   ${RFID_APP_SRCS}
   ${RNODE_APP_SRCS}
+  ${MESHCORE_APP_SRCS}
   ${MESHTASTIC_APP_SRCS}
   ${BADUSB_APP_SRCS}
   ${BLE_APP_SRCS}
@@ -146,6 +148,7 @@ idf_component_register(SRCS
   "rfid/include"
   "rfid/protocols/include"
   "LoRa/rnode/include"
+  "LoRa/meshcore/include"
   "LoRa/meshtastic/include"
   "ui/include"
   "ui/screens/home/include"
@@ -181,5 +184,8 @@ idf_component_register(SRCS
   esp_tinyusb
   mbedtls
   bt
+  libsodium
+  mqtt
 )
 target_link_libraries(${COMPONENT_LIB} -Wl,-zmuldefs)
+target_compile_definitions(${COMPONENT_LIB} PRIVATE MESH_HEADLESS=0)
