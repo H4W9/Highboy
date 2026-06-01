@@ -10,11 +10,17 @@ The P4 acts as the **SPI Master**. It is responsible for:
 4. Managing the C5 lifecycle (Reset, Boot mode, and Firmware Updates via UART).
 
 ## Protocol Specification
-Every packet follows a 4-byte fixed header:
+Every packet follows a 5-byte fixed header:
 - `Sync (0xAA)`: Packet synchronization.
 - `Type`: `0x01` (Command), `0x02` (Response), `0x03` (Stream).
-- `ID`: Function identifier (defined in `spi_protocol.h`).
+- `Category`: Subsystem selector (`spi_cat_t`: WiFi `0x01`, BT `0x02`, …). The C5
+  routes a command to a dispatcher by this byte alone.
+- `Op`: Operation within the category.
 - `Length`: Size of the following payload (0-255 bytes).
+
+`Category` + `Op` together form the packed command identifier (`spi_id_t`),
+built via `SPI_CMD(cat, op)`. Use `spi_header_cmd()` / `spi_header_set_cmd()` to
+read/write the pair as a single 16-bit value.
 
 ## Generic Data Pipe
 To keep the bridge simple, we use a "Dumb Pipe" approach for large data sets (like Scan results):
@@ -77,7 +83,7 @@ Drops are counted and logged.
 | C5 → P4 | heartbeat reply | status + `spi_heartbeat_resp_t { alive }` |
 | C5 → P4 | data | `op_id` STREAM + `spi_stream_meta_t { session_id, seq }` + payload |
 | P4 → C5 | STOP | `SPI_ID_SESSION_STOP` + `spi_session_stop_req_t { session_id }` |
-| C5 → P4 | watchdog kill | `SPI_ID_SESSION_LOST` STREAM + `spi_session_lost_t { session_id, op_id }` |
+| C5 → P4 | watchdog kill | `SPI_ID_SESSION_LOST` STREAM + `spi_session_lost_t { session_id, cmd }` |
 
 ### Master API
 

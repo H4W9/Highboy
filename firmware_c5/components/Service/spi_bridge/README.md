@@ -6,7 +6,7 @@ This component transforms the **ESP32-C5** into a high-performance radio co-proc
 The C5 runs a background task (`spi_bridge_task`) that stays in a blocked state waiting for the P4 to send SPI bytes. 
 
 1. **Reception**: When bytes arrive, the task validates the `0xAA` sync byte.
-2. **Routing**: It checks the `ID` and routes the payload to the appropriate **Dispatcher** (WiFi or Bluetooth).
+2. **Routing**: It switches on the `Category` byte and routes the payload to the appropriate **Dispatcher** (WiFi or Bluetooth); the `Op` byte selects the operation within that dispatcher.
 3. **Execution**: The Dispatcher executes the radio command (e.g., starts a scan).
 4. **Notification**: Once the command is done (or results are ready), the C5 raises the **IRQ (Handshake)** pin.
 5. **Response**: The P4 sees the IRQ, sends a dummy SPI clock, and the C5 "pushes" the response packet back.
@@ -26,12 +26,17 @@ The bridge then serves these items one by one when the P4 asks for them via the 
 - `session_manager.c`: Session lifecycle for long-running operations
   (heartbeat watchdog + backpressure). See "Session Lifecycle" below.
 
-## Command Range
-- `0x01 - 0x0F`: System/Bridge management.
-- `0x10 - 0x4F`: WiFi operations.
-- `0x50 - 0x7F`: Bluetooth operations.
-- `0x80 - 0x8F`: LoRa operations.
-- `0xF0 - 0xFF`: Session lifecycle (heartbeat, lost, stop).
+## Command Categories
+The `Category` header byte (`spi_cat_t`) selects the subsystem; the `Op` byte
+selects the operation within it. Together they pack into `spi_id_t` via
+`SPI_CMD(cat, op)`.
+- `0x00`: System/Bridge management (ping, status, version, data, stream).
+- `0x01`: WiFi operations.
+- `0x02`: Bluetooth operations.
+- `0x03`: LoRa operations.
+- `0x04`: Meshtastic phone bridge.
+- `0x05`: MeshCore phone bridge.
+- `0xFF`: Session lifecycle (heartbeat, lost, stop).
 
 ## Session Lifecycle (Long-Running Operations)
 

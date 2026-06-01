@@ -61,7 +61,7 @@ static void close_active_locked(const char *reason) {
     return;
 
   ESP_LOGW(TAG,
-           "Closing session 0x%08lx (op 0x%02X): %s",
+           "Closing session 0x%08lx (op 0x%04X): %s",
            (unsigned long)s_session.id,
            s_session.op_id,
            reason);
@@ -81,7 +81,7 @@ static void close_active_locked(const char *reason) {
 }
 
 static void emit_session_lost(uint32_t session_id, spi_id_t op_id) {
-  spi_session_lost_t payload = {.session_id = session_id, .op_id = (uint8_t)op_id};
+  spi_session_lost_t payload = {.session_id = session_id, .cmd = (uint16_t)op_id};
   spi_bridge_stream_push(SPI_ID_SESSION_LOST, (const uint8_t *)&payload, sizeof(payload));
 }
 
@@ -135,7 +135,7 @@ uint32_t session_manager_start(spi_id_t op_id, session_kill_cb_t kill_cb) {
   uint32_t id = s_session.id;
   xSemaphoreGive(s_mutex);
 
-  ESP_LOGI(TAG, "Session 0x%08lx opened for op 0x%02X", (unsigned long)id, op_id);
+  ESP_LOGI(TAG, "Session 0x%08lx opened for op 0x%04X", (unsigned long)id, op_id);
   return id;
 }
 

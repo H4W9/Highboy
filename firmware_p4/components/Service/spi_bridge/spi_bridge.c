@@ -94,7 +94,7 @@ void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
     }
   }
   if (free_slot < 0) {
-    ESP_LOGE(TAG, "No free stream cb slot for id 0x%02X", id);
+    ESP_LOGE(TAG, "No free stream cb slot for id 0x%04X", id);
     return;
   }
   s_stream_cbs[free_slot].id = id;
@@ -155,7 +155,11 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   }
   s_is_command_in_flight = true;
 
-  spi_header_t header = {.sync = SPI_SYNC_BYTE, .type = SPI_TYPE_CMD, .id = id, .length = len};
+  spi_header_t header = {.sync = SPI_SYNC_BYTE,
+                         .type = SPI_TYPE_CMD,
+                         .category = SPI_CMD_CAT(id),
+                         .op = SPI_CMD_OP(id),
+                         .length = len};
 
   if (len > SPI_MAX_PAYLOAD) {
     s_is_command_in_flight = false;
@@ -180,7 +184,7 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
 
   ret = spi_bridge_phy_wait_irq(timeout_ms);
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "Command 0x%02X timeout", id);
+    ESP_LOGW(TAG, "Command 0x%04X timeout", id);
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ret;
@@ -211,8 +215,8 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     return ESP_ERR_INVALID_RESPONSE;
   }
 
-  if (resp->id != id) {
-    ESP_LOGW(TAG, "Response ID mismatch (req 0x%02X, resp 0x%02X)", id, resp->id);
+  if (spi_header_cmd(resp) != id) {
+    ESP_LOGW(TAG, "Response ID mismatch (req 0x%04X, resp 0x%04X)", id, spi_header_cmd(resp));
   }
 
   if (resp->length > SPI_MAX_PAYLOAD) {
@@ -265,8 +269,11 @@ static bool has_any_stream_cb(void) {
 }
 
 static esp_err_t fetch_stream(spi_header_t *out_header, uint8_t *out_payload, uint8_t *out_len) {
-  spi_header_t header = {
-      .sync = SPI_SYNC_BYTE, .type = SPI_TYPE_CMD, .id = SPI_ID_SYSTEM_STREAM, .length = 0};
+  spi_header_t header = {.sync = SPI_SYNC_BYTE,
+                         .type = SPI_TYPE_CMD,
+                         .category = SPI_CMD_CAT(SPI_ID_SYSTEM_STREAM),
+                         .op = SPI_CMD_OP(SPI_ID_SYSTEM_STREAM),
+                         .length = 0};
 
   uint8_t tx_buf[SPI_FRAME_SIZE];
   uint8_t rx_buf[SPI_FRAME_SIZE];
@@ -339,9 +346,9 @@ static void stream_task(void *arg) {
       continue;
     }
 
-    spi_stream_cb_t cb = get_stream_cb(header.id);
+    spi_stream_cb_t cb = get_stream_cb(spi_header_cmd(&header));
     if (cb != NULL) {
-      cb(header.id, payload, len);
+      cb(spi_header_cmd(&header), payload, len);
     }
     vTaskDelay(pdMS_TO_TICKS(SPI_STREAM_YIELD_MS));
   }

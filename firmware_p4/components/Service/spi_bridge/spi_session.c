@@ -52,7 +52,7 @@ static void notify_lost_locked(const char *reason) {
     return;
 
   ESP_LOGW(TAG,
-           "Session 0x%08lx (op 0x%02X) lost: %s",
+           "Session 0x%08lx (op 0x%04X) lost: %s",
            (unsigned long)s_state.session_id,
            s_state.op_id,
            reason);
@@ -187,11 +187,11 @@ uint32_t spi_session_start(spi_id_t op_id,
   esp_err_t ret = spi_bridge_send_command(
       op_id, params, params_len, &resp_header, (uint8_t *)&resp, spi_bridge_get_timeout(op_id));
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "START op 0x%02X bridge error: %s", op_id, esp_err_to_name(ret));
+    ESP_LOGE(TAG, "START op 0x%04X bridge error: %s", op_id, esp_err_to_name(ret));
     return SPI_SESSION_INVALID_ID;
   }
   if (resp.session_id == SPI_SESSION_INVALID_ID) {
-    ESP_LOGE(TAG, "START op 0x%02X did not return a session id", op_id);
+    ESP_LOGE(TAG, "START op 0x%04X did not return a session id", op_id);
     return SPI_SESSION_INVALID_ID;
   }
 
@@ -218,7 +218,7 @@ uint32_t spi_session_start(spi_id_t op_id,
     return SPI_SESSION_INVALID_ID;
   }
 
-  ESP_LOGI(TAG, "Session 0x%08lx started for op 0x%02X", (unsigned long)session_id, op_id);
+  ESP_LOGI(TAG, "Session 0x%08lx started for op 0x%04X", (unsigned long)session_id, op_id);
   return session_id;
 }
 
