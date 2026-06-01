@@ -13,8 +13,6 @@
 # You should have received a copy of the GNU General Public License
 # along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
 
-file(GLOB_RECURSE CONSOLE_SERVICE_SRCS "console/*.c")
-file(GLOB_RECURSE CONSOLE_COMMANDS_SRCS "console/commands/*.c")
 file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE SD_CARD_SRCS "sd_card/*.c")
 file(GLOB_RECURSE MESHTASTIC_SRCS "meshtastic/*.c")
@@ -41,8 +39,6 @@ idf_component_register(SRCS
 
   "esp_now/service_esp_now.c"
   ${SPI_BRIDGE_SRCS}
-  ${CONSOLE_SERVICE_SRCS}
-  ${CONSOLE_COMMANDS_SRCS}
   ${SD_CARD_SRCS}
   ${MESHTASTIC_SRCS}
   ${MESHCORE_SRCS}
@@ -56,7 +52,6 @@ idf_component_register(SRCS
   "storage_assets/include"
   "esp_now/include"
   "spi_bridge/include"
-  "console/include"
   "sd_card/include"
   "meshtastic/include"
   "meshcore/include"
@@ -80,7 +75,5 @@ idf_component_register(SRCS
     lvgl
     littlefs
     cjson
-    console
-    argtable3
     mdns
 )

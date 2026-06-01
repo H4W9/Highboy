@@ -26,7 +26,6 @@
 
 #include "bq25896.h"
 #include "buttons_gpio.h"
-#include "console_service.h"
 #include "i2c_init.h"
 #include "led_control.h"
 #include "pin_def.h"
@@ -39,14 +38,7 @@
 
 static const char *TAG = "SAFEGUARD";
 
-#define CONSOLE_TASK_STACK 4096
-#define CONSOLE_TASK_PRIO  5
-#define BOOT_SETTLE_MS     1500
-
-static void console_task(void *pvParameters) {
-  console_service_init();
-  vTaskDelete(NULL);
-}
+#define BOOT_SETTLE_MS 1500
 
 void kernel_init(void) {
   esp_err_t ret = nvs_flash_init();
@@ -70,8 +62,6 @@ void kernel_init(void) {
   sys_monitor(false);
 
   wifi_service_init();
-
-  xTaskCreate(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL);
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }
