@@ -183,21 +183,38 @@ static bool stream_pop(spi_id_t *out_id, uint8_t *out_data, uint8_t *out_len) {
 static void bridge_task(void *pvParameters) {
   uint8_t rx_buf[SPI_FRAME_SIZE];
   uint8_t tx_buf[SPI_FRAME_SIZE];
+  spi_slave_transaction_t rx_trans;
+  spi_slave_transaction_t tx_trans;
+
+  // Keep a receive transaction armed in hardware at all times. The next command
+  // RX is re-armed right after the response TX is queued (below), so the master
+  // can never clock a command into an unarmed slave — even if this task is
+  // preempted between transfers.
+  memset(rx_buf, 0, sizeof(rx_buf));
+  if (spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE) != ESP_OK) {
+    vTaskDelete(NULL);
+    return;
+  }
 
   while (1) {
-    memset(rx_buf, 0, sizeof(rx_buf));
-    if (spi_slave_driver_transmit(NULL, rx_buf, SPI_FRAME_SIZE) != ESP_OK)
+    if (spi_slave_driver_wait() != ESP_OK) {
+      memset(rx_buf, 0, sizeof(rx_buf));
+      spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE);
       continue;
+    }
 
     spi_header_t *header = (spi_header_t *)rx_buf;
-    if (header->sync != SPI_SYNC_BYTE || header->type != SPI_TYPE_CMD)
+    if (header->sync != SPI_SYNC_BYTE || header->type != SPI_TYPE_CMD ||
+        header->length > SPI_MAX_PAYLOAD) {
+      memset(rx_buf, 0, sizeof(rx_buf));
+      spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE);
       continue;
-    if (header->length > SPI_MAX_PAYLOAD)
-      continue;
+    }
 
     spi_status_t status = SPI_STATUS_OK;
     uint8_t resp_payload[SPI_MAX_PAYLOAD];
     uint8_t resp_len = 0;
+    bool tx_ready = false; // set when the case already built a complete tx_buf frame
 
     uint16_t cmd = spi_header_cmd(header);
     const uint8_t *cmd_payload = rx_buf + sizeof(spi_header_t);
@@ -266,16 +283,10 @@ static void bridge_task(void *pvParameters) {
             memcpy(tx_buf, &stream_header, sizeof(stream_header));
             if (stream_len > 0)
               memcpy(tx_buf + sizeof(stream_header), resp_payload, stream_len);
-
-            spi_bridge_notify_master();
-            spi_slave_driver_transmit(tx_buf, NULL, SPI_FRAME_SIZE);
-            if (s_is_restart_pending) {
-              vTaskDelay(pdMS_TO_TICKS(SPI_RESTART_DELAY_MS));
-              esp_restart();
-            }
-            continue;
+            tx_ready = true;
+          } else {
+            status = SPI_STATUS_BUSY;
           }
-          status = SPI_STATUS_BUSY;
         } else {
           status = SPI_STATUS_UNSUPPORTED;
         }
@@ -321,24 +332,32 @@ static void bridge_task(void *pvParameters) {
         break;
     }
 
-    if (resp_len > (SPI_MAX_PAYLOAD - SPI_RESP_STATUS_SIZE)) {
-      resp_len = 0;
-      status = SPI_STATUS_ERROR;
+    if (!tx_ready) {
+      if (resp_len > (SPI_MAX_PAYLOAD - SPI_RESP_STATUS_SIZE)) {
+        resp_len = 0;
+        status = SPI_STATUS_ERROR;
+      }
+
+      spi_header_t resp_header = {.sync = SPI_SYNC_BYTE,
+                                  .type = SPI_TYPE_RESP,
+                                  .category = header->category,
+                                  .op = header->op,
+                                  .length = (uint8_t)(resp_len + SPI_RESP_STATUS_SIZE)};
+      memset(tx_buf, 0, sizeof(tx_buf));
+      memcpy(tx_buf, &resp_header, sizeof(resp_header));
+      tx_buf[sizeof(resp_header)] = (uint8_t)status;
+      if (resp_len > 0)
+        memcpy(tx_buf + sizeof(resp_header) + SPI_RESP_STATUS_SIZE, resp_payload, resp_len);
     }
 
-    spi_header_t resp_header = {.sync = SPI_SYNC_BYTE,
-                                .type = SPI_TYPE_RESP,
-                                .category = header->category,
-                                .op = header->op,
-                                .length = (uint8_t)(resp_len + SPI_RESP_STATUS_SIZE)};
-    memset(tx_buf, 0, sizeof(tx_buf));
-    memcpy(tx_buf, &resp_header, sizeof(resp_header));
-    tx_buf[sizeof(resp_header)] = (uint8_t)status;
-    if (resp_len > 0)
-      memcpy(tx_buf + sizeof(resp_header) + SPI_RESP_STATUS_SIZE, resp_payload, resp_len);
-
+    // Arm the response, signal the master, then immediately re-arm the next
+    // receive so the slave is ready before the response transfer even completes.
+    spi_slave_driver_queue(&tx_trans, tx_buf, NULL, SPI_FRAME_SIZE);
     spi_bridge_notify_master();
-    spi_slave_driver_transmit(tx_buf, NULL, SPI_FRAME_SIZE);
+    memset(rx_buf, 0, sizeof(rx_buf));
+    spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE);
+
+    spi_slave_driver_wait(); // wait for the response transfer to complete
 
     if (s_is_restart_pending) {
       vTaskDelay(pdMS_TO_TICKS(SPI_RESTART_DELAY_MS));
