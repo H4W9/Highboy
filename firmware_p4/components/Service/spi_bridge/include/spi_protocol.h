@@ -285,7 +285,9 @@ typedef struct __attribute__((packed)) {
   uint16_t cmd; // spi_id_t of the lost operation
 } spi_session_lost_t;
 
-#define SPI_FRAME_SIZE (sizeof(spi_header_t) + SPI_MAX_PAYLOAD)
+// Rounded up to a multiple of 4 bytes: SPI DMA transfers must be word-aligned
+// in length, and the 5-byte header would otherwise make the frame size odd.
+#define SPI_FRAME_SIZE (((sizeof(spi_header_t) + SPI_MAX_PAYLOAD) + 3u) & ~3u)
 
 /**
  * @brief WiFi connect request payload.
