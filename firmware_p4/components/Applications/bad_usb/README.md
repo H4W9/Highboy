@@ -131,3 +131,4 @@ Modifier keys can be combined: `CTRL SHIFT ESC`, `GUI r`, `ALT F4`.
 |--------|------|-------|
 | US (QWERTY) | `DUCKY_LAYOUT_US` | Default. Standard ASCII mapping. |
 | ABNT2 (Brazil) | `DUCKY_LAYOUT_ABNT2` | Dead-key accent support, remapped punctuation. |
+
