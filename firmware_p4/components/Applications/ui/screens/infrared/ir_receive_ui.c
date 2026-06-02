@@ -248,10 +248,10 @@ static void show_result(void) {
     char buf[IR_DETAIL_BUF_LEN];
     snprintf(buf,
              sizeof(buf),
-             "Protocol: %s\nAddress: 0x%04X\nCommand: 0x%04X",
+             "Protocol: %s\nAddress: 0x%08lX\nCommand: 0x%08lX",
              ir_protocol_name(s_rx_result.protocol),
-             s_rx_result.address,
-             s_rx_result.command);
+             (unsigned long)s_rx_result.address,
+             (unsigned long)s_rx_result.command);
     lv_label_set_text(s_detail_label, buf);
 
     msgbox_open(LV_SYMBOL_OK, "Save signal?", "Yes", "No", on_ask_save);
