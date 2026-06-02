@@ -231,6 +231,68 @@ To keep the bridge simple, we use a "Dumb Pipe" approach for large data sets (li
 2. **Pull Item**: Call `SPI_ID_SYSTEM_DATA` with index `0 to N`.
 3. **Real-time Stats**: Call `SPI_ID_SYSTEM_DATA` with index `0xEEEE` to get a `sniffer_stats_t` structure.
 
+## Stream Transport (batched)
+
+Long-running ops (sniffers, mesh bridge) emit a continuous stream of records.
+The P4 drains them by polling `SPI_ID_SYSTEM_STREAM`. To keep throughput high,
+the transport **batches many records into one transfer** instead of one record
+per round-trip:
+
+- The C5 buffers records in a ring (depth `SPI_STREAM_QUEUE_LEN = 64`). On a
+  `SPI_ID_SYSTEM_STREAM` poll it packs as many as fit into a single large frame
+  of `SPI_STREAM_FRAME_SIZE` (2048 B) and the P4 always clocks that fixed size.
+- Stream frame layout (after the 5-byte header, `type = STREAM`):
+  `[u16 batch_len]` then `batch_len` bytes of records, each
+  `[u16 op][u8 len][len bytes]`. `batch_len = 0` means "no data" → the P4 backs
+  off and polls again later.
+- The P4 unpacks and dispatches **each record to its `op`'s stream callback**,
+  exactly as if it had arrived in its own frame — so session/`seq`/backpressure
+  semantics stay **per record** (see Session Lifecycle). The command/response
+  path is unaffected and still uses `SPI_FRAME_SIZE`.
+
+Two related tunables: the C5 signals readiness with a short rising-edge IRQ
+pulse (~10 µs — the P4 catches it via a GPIO edge interrupt, so no held level
+or millisecond delay is needed), and bursts are absorbed by the 64-deep ring;
+when it overflows, records are dropped and counted (never block capture).
+
+### Stream Example (WiFi sniffer)
+
+**Producer — C5** (each captured 802.11 frame becomes one record; the session
+layer adds the `{session_id, seq}` meta and applies backpressure):
+```c
+spi_wifi_sniffer_frame_t f = { .rssi = -42, .channel = 6, .len = n, /* data */ };
+session_manager_try_emit(session_id, (const uint8_t *)&f, 3 + n);
+```
+
+**On the wire** — the P4 polls `SYSTEM_STREAM` and the C5 returns one 2 KB frame
+batching the queued records:
+```
+P4 -> C5:  AA 01 00 06 00              poll: SYSTEM_STREAM (cat 0x00, op 0x06)
+C5 -> P4:  AA 03 00 00 00 | <payload, padded to 2048 B>
+           ^ header, type=STREAM (cat/op/length unused for the batch)
+  payload:
+    20 00                              batch_len = 0x0020 (32 bytes of records)
+    ── record 1 ───────────────────────
+    25 01                              op = 0x0125 (SPI_ID_WIFI_APP_SNIFFER)
+    0D                                 rec_len = 13
+    34 12 00 00  01 00 00 00           spi_stream_meta_t { session_id=0x1234, seq=1 }
+    D6 06 02 AA BB                     frame: rssi=-42, ch=6, len=2, data=AA BB
+    ── record 2 (same op, seq=2) ──────
+    25 01 0D  34 12 00 00 02 00 00 00  D6 06 02 CC DD
+    ── remaining bytes up to 2048 = padding, ignored (batch_len bounds it) ──
+```
+
+**Consumer — P4** (each record is dispatched to the op's callback; the meta is
+stripped by the session layer, so the consumer sees only the frame):
+```c
+// registered via spi_session_start(SPI_ID_WIFI_APP_SNIFFER, …, on_stream, …)
+static void on_stream(const uint8_t *payload, uint8_t len) {
+    const spi_wifi_sniffer_frame_t *f = (const void *)payload; // one captured frame
+    storage_stream_write(pcap, f->data, f->len);
+}
+```
+See `wifi_sniffer.c` (both firmwares) for the full reference implementation.
+
 ## Adding a New Command
 To add a new feature (e.g., "GPS Get Location"):
 
@@ -284,7 +346,7 @@ Drops are counted and logged.
 | C5 → P4 | START reply | status byte + `spi_session_resp_t { session_id }` |
 | P4 → C5 | every 2s | `SPI_ID_SESSION_HEARTBEAT` + `spi_heartbeat_req_t` |
 | C5 → P4 | heartbeat reply | status + `spi_heartbeat_resp_t { alive }` |
-| C5 → P4 | data | `op_id` STREAM + `spi_stream_meta_t { session_id, seq }` + payload |
+| C5 → P4 | data | batched STREAM frame (see "Stream Transport"); each record = `op` + `spi_stream_meta_t { session_id, seq }` + payload |
 | P4 → C5 | STOP | `SPI_ID_SESSION_STOP` + `spi_session_stop_req_t { session_id }` |
 | C5 → P4 | watchdog kill | `SPI_ID_SESSION_LOST` STREAM + `spi_session_lost_t { session_id, cmd }` |
 
