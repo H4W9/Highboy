@@ -244,6 +244,14 @@ static inline void spi_header_set_cmd(spi_header_t *h, uint16_t cmd) {
 // in length, and the 5-byte header would otherwise make the frame size odd.
 #define SPI_FRAME_SIZE (((sizeof(spi_header_t) + SPI_MAX_PAYLOAD) + 3u) & ~3u)
 
+// Larger fixed transfer size used ONLY by the SYSTEM_STREAM response, which
+// batches many stream records into one transfer to amortize per-frame overhead.
+// The command/response path keeps using SPI_FRAME_SIZE. Must be a multiple of 4
+// for SPI DMA. Stream frame layout (after the 5-byte header, type = STREAM):
+//   [u16 batch_len][record]... where each record = [u16 op][u8 len][len bytes]
+// and `record` data is exactly what session_manager queued (meta + payload).
+#define SPI_STREAM_FRAME_SIZE 2048
+
 // Session protocol — see spi_bridge/README.md "Session Lifecycle"
 #define SPI_SESSION_INVALID_ID 0u
 #define SPI_SESSION_WINDOW     64u

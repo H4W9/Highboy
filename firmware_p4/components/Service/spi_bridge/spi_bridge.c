@@ -48,7 +48,7 @@ static volatile bool s_bridge_alive = true;
 static stream_cb_slot_t s_stream_cbs[SPI_STREAM_CB_SLOTS] = {0};
 
 static void stream_task(void *arg);
-static esp_err_t fetch_stream(spi_header_t *out_header, uint8_t *out_payload, uint8_t *out_len);
+static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_len);
 static spi_stream_cb_t get_stream_cb(spi_id_t id);
 static bool has_any_stream_cb(void);
 
@@ -268,19 +268,25 @@ static bool has_any_stream_cb(void) {
   return false;
 }
 
-static esp_err_t fetch_stream(spi_header_t *out_header, uint8_t *out_payload, uint8_t *out_len) {
+// Fetches one batched stream frame. On ESP_OK, *out_records points into a
+// static buffer holding the records region ([u16 op][u8 len][data]...) and
+// *out_batch_len is its length in bytes (0 = no data pending). The returned
+// pointer is valid until the next fetch_stream call (single consumer task).
+static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_len) {
+  static uint8_t s_stream_tx[SPI_STREAM_FRAME_SIZE]; // stays zero; master clocks zeros out
+  static uint8_t s_stream_rx[SPI_STREAM_FRAME_SIZE];
+
   spi_header_t header = {.sync = SPI_SYNC_BYTE,
                          .type = SPI_TYPE_CMD,
                          .category = SPI_CMD_CAT(SPI_ID_SYSTEM_STREAM),
                          .op = SPI_CMD_OP(SPI_ID_SYSTEM_STREAM),
                          .length = 0};
 
-  uint8_t tx_buf[SPI_FRAME_SIZE];
-  uint8_t rx_buf[SPI_FRAME_SIZE];
-  memset(tx_buf, 0, sizeof(tx_buf));
-  memcpy(tx_buf, &header, sizeof(header));
+  uint8_t cmd_tx[SPI_FRAME_SIZE];
+  memset(cmd_tx, 0, sizeof(cmd_tx));
+  memcpy(cmd_tx, &header, sizeof(header));
 
-  esp_err_t ret = spi_bridge_phy_transmit(tx_buf, NULL, SPI_FRAME_SIZE);
+  esp_err_t ret = spi_bridge_phy_transmit(cmd_tx, NULL, SPI_FRAME_SIZE);
   if (ret != ESP_OK)
     return ret;
 
@@ -288,29 +294,29 @@ static esp_err_t fetch_stream(spi_header_t *out_header, uint8_t *out_payload, ui
   if (ret != ESP_OK)
     return ret;
 
-  memset(tx_buf, 0, sizeof(tx_buf));
-  memset(rx_buf, 0, sizeof(rx_buf));
-  ret = spi_bridge_phy_transmit(tx_buf, rx_buf, SPI_FRAME_SIZE);
+  ret = spi_bridge_phy_transmit(s_stream_tx, s_stream_rx, SPI_STREAM_FRAME_SIZE);
   if (ret != ESP_OK)
     return ret;
 
-  spi_header_t *resp = (spi_header_t *)rx_buf;
+  spi_header_t *resp = (spi_header_t *)s_stream_rx;
   if (resp->sync != SPI_SYNC_BYTE)
     return ESP_ERR_INVALID_RESPONSE;
 
   if (resp->type == SPI_TYPE_STREAM) {
-    if (out_header != NULL)
-      *out_header = *resp;
-    if (out_len != NULL)
-      *out_len = resp->length;
-    if (resp->length > 0 && out_payload != NULL) {
-      memcpy(out_payload, rx_buf + sizeof(spi_header_t), resp->length);
-    }
+    uint16_t batch_len = (uint16_t)s_stream_rx[sizeof(spi_header_t)] |
+                         ((uint16_t)s_stream_rx[sizeof(spi_header_t) + 1] << 8);
+    uint16_t cap = SPI_STREAM_FRAME_SIZE - sizeof(spi_header_t) - sizeof(uint16_t);
+    if (batch_len > cap)
+      batch_len = cap;
+    if (out_records != NULL)
+      *out_records = s_stream_rx + sizeof(spi_header_t) + sizeof(uint16_t);
+    if (out_batch_len != NULL)
+      *out_batch_len = batch_len;
     return ESP_OK;
   }
 
   if (resp->type == SPI_TYPE_RESP && resp->length >= SPI_RESP_STATUS_SIZE) {
-    spi_status_t status = (spi_status_t)rx_buf[sizeof(spi_header_t)];
+    spi_status_t status = (spi_status_t)s_stream_rx[sizeof(spi_header_t)];
     return status_to_err(status);
   }
 
@@ -318,9 +324,6 @@ static esp_err_t fetch_stream(spi_header_t *out_header, uint8_t *out_payload, ui
 }
 
 static void stream_task(void *arg) {
-  uint8_t payload[SPI_MAX_PAYLOAD];
-  spi_header_t header;
-
   while (1) {
     if (!has_any_stream_cb()) {
       s_stream_task_handle = NULL;
@@ -338,17 +341,27 @@ static void stream_task(void *arg) {
       continue;
     }
 
-    uint8_t len = 0;
-    esp_err_t ret = fetch_stream(&header, payload, &len);
+    const uint8_t *records = NULL;
+    uint16_t batch_len = 0;
+    esp_err_t ret = fetch_stream(&records, &batch_len);
     xSemaphoreGive(s_spi_mutex);
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK || batch_len == 0 || records == NULL) {
       vTaskDelay(pdMS_TO_TICKS(SPI_STREAM_IDLE_MS));
       continue;
     }
 
-    spi_stream_cb_t cb = get_stream_cb(spi_header_cmd(&header));
-    if (cb != NULL) {
-      cb(spi_header_cmd(&header), payload, len);
+    // Unpack [u16 op][u8 len][data]... and dispatch each record to its callback,
+    // exactly as if it had arrived in its own frame.
+    uint16_t off = 0;
+    while (off + 3u <= batch_len) {
+      uint16_t op = (uint16_t)records[off] | ((uint16_t)records[off + 1] << 8);
+      uint8_t rec_len = records[off + 2];
+      if ((uint32_t)off + 3u + rec_len > batch_len)
+        break; // truncated/malformed — stop
+      spi_stream_cb_t cb = get_stream_cb(op);
+      if (cb != NULL)
+        cb(op, records + off + 3, rec_len);
+      off += 3u + rec_len;
     }
     vTaskDelay(pdMS_TO_TICKS(SPI_STREAM_YIELD_MS));
   }

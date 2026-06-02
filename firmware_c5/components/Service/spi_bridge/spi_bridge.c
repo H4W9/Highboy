@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
@@ -36,10 +37,10 @@
 
 static const char *TAG = "SPI_BRIDGE_C5";
 
-#define SPI_STREAM_QUEUE_LEN  8
+#define SPI_STREAM_QUEUE_LEN  64
 #define SPI_BRIDGE_TASK_STACK 4096
 #define SPI_BRIDGE_TASK_PRIO  10
-#define SPI_IRQ_PULSE_MS      1
+#define SPI_IRQ_PULSE_US      10
 #define SPI_RESTART_DELAY_MS  50
 #define SPI_FW_VERSION_LEN    32
 #define SPI_FW_VERSION_STRING "1.3.0"
@@ -68,7 +69,7 @@ static volatile bool s_is_restart_pending = false;
 static char s_firmware_version[SPI_FW_VERSION_LEN] = "unknown";
 
 static void load_firmware_version(void);
-static bool stream_pop(spi_id_t *out_id, uint8_t *out_data, uint8_t *out_len);
+static uint16_t stream_pop_into(uint8_t *buf, uint16_t offset, uint16_t cap);
 static void bridge_task(void *pvParameters);
 
 // Public functions
@@ -137,8 +138,11 @@ bool spi_bridge_stream_push(spi_id_t id, const uint8_t *data, uint8_t len) {
 }
 
 void spi_bridge_notify_master(void) {
+  // The P4 captures the IRQ via a GPIO rising-edge interrupt, so it only needs
+  // a clean edge — not a held level. A short microsecond pulse replaces the old
+  // 1 ms task delay, which dominated per-frame latency and capped stream rate.
   spi_slave_driver_set_irq(1);
-  vTaskDelay(pdMS_TO_TICKS(SPI_IRQ_PULSE_MS));
+  esp_rom_delay_us(SPI_IRQ_PULSE_US);
   spi_slave_driver_set_irq(0);
 }
 
@@ -160,29 +164,37 @@ static void load_firmware_version(void) {
   ESP_LOGI(TAG, "Firmware version: %s", s_firmware_version);
 }
 
-static bool stream_pop(spi_id_t *out_id, uint8_t *out_data, uint8_t *out_len) {
-  bool has_item = false;
+// Pop the head stream item into buf at `offset`, encoded as a record
+// [u16 op][u8 len][len bytes]. Returns the number of bytes written, or 0 if the
+// queue is empty or the record would not fit in `cap`. Keeps the critical
+// section short (one item, <=256 bytes) so the producer is never blocked long.
+static uint16_t stream_pop_into(uint8_t *buf, uint16_t offset, uint16_t cap) {
+  uint16_t written = 0;
   portENTER_CRITICAL(&s_stream_mux);
   if (s_stream_count > 0) {
     spi_stream_item_t *item = &s_stream_queue[s_stream_head];
-    if (out_id != NULL)
-      *out_id = item->id;
-    if (out_len != NULL)
-      *out_len = item->len;
-    if (out_data != NULL && item->len > 0) {
-      memcpy(out_data, item->data, item->len);
+    uint16_t need = 3u + item->len; // u16 op + u8 len + data
+    if ((uint32_t)offset + need <= cap) {
+      buf[offset] = (uint8_t)(item->id & 0xFF);
+      buf[offset + 1] = (uint8_t)((item->id >> 8) & 0xFF);
+      buf[offset + 2] = item->len;
+      if (item->len > 0)
+        memcpy(buf + offset + 3, item->data, item->len);
+      written = need;
+      s_stream_head = (uint8_t)((s_stream_head + 1) % SPI_STREAM_QUEUE_LEN);
+      s_stream_count--;
     }
-    s_stream_head = (uint8_t)((s_stream_head + 1) % SPI_STREAM_QUEUE_LEN);
-    s_stream_count--;
-    has_item = true;
   }
   portEXIT_CRITICAL(&s_stream_mux);
-  return has_item;
+  return written;
 }
 
 static void bridge_task(void *pvParameters) {
-  uint8_t rx_buf[SPI_FRAME_SIZE];
-  uint8_t tx_buf[SPI_FRAME_SIZE];
+  // Static (this is the only task touching them) so the larger stream TX buffer
+  // does not blow the task stack. RX/command stays at SPI_FRAME_SIZE; only the
+  // stream response uses the larger SPI_STREAM_FRAME_SIZE buffer.
+  static uint8_t rx_buf[SPI_FRAME_SIZE];
+  static uint8_t tx_buf[SPI_STREAM_FRAME_SIZE];
   spi_slave_transaction_t rx_trans;
   spi_slave_transaction_t tx_trans;
 
@@ -214,7 +226,8 @@ static void bridge_task(void *pvParameters) {
     spi_status_t status = SPI_STATUS_OK;
     uint8_t resp_payload[SPI_MAX_PAYLOAD];
     uint8_t resp_len = 0;
-    bool tx_ready = false; // set when the case already built a complete tx_buf frame
+    bool tx_ready = false;          // set when the case already built a complete tx_buf frame
+    size_t tx_size = SPI_FRAME_SIZE; // bytes the master will clock for the response
 
     uint16_t cmd = spi_header_cmd(header);
     const uint8_t *cmd_payload = rx_buf + sizeof(spi_header_t);
@@ -271,22 +284,27 @@ static void bridge_task(void *pvParameters) {
             status = SPI_STATUS_ERROR;
           }
         } else if (cmd == SPI_ID_SYSTEM_STREAM) {
-          spi_id_t stream_id = 0;
-          uint8_t stream_len = 0;
-          if (stream_pop(&stream_id, resp_payload, &stream_len)) {
-            spi_header_t stream_header = {.sync = SPI_SYNC_BYTE,
-                                          .type = SPI_TYPE_STREAM,
-                                          .category = SPI_CMD_CAT(stream_id),
-                                          .op = SPI_CMD_OP(stream_id),
-                                          .length = stream_len};
-            memset(tx_buf, 0, sizeof(tx_buf));
-            memcpy(tx_buf, &stream_header, sizeof(stream_header));
-            if (stream_len > 0)
-              memcpy(tx_buf + sizeof(stream_header), resp_payload, stream_len);
-            tx_ready = true;
-          } else {
-            status = SPI_STATUS_BUSY;
-          }
+          // Batch as many queued records as fit into one large stream frame:
+          //   [header type=STREAM][u16 batch_len][u16 op][u8 len][data]...
+          // The master always clocks SPI_STREAM_FRAME_SIZE for stream reads;
+          // batch_len = 0 means "no data" and the P4 just backs off.
+          uint8_t *recs = tx_buf + sizeof(spi_header_t) + sizeof(uint16_t);
+          uint16_t cap = SPI_STREAM_FRAME_SIZE - sizeof(spi_header_t) - sizeof(uint16_t);
+          uint16_t batch_len = 0;
+          uint16_t w;
+          while ((w = stream_pop_into(recs, batch_len, cap)) > 0)
+            batch_len += w;
+
+          spi_header_t stream_header = {.sync = SPI_SYNC_BYTE,
+                                        .type = SPI_TYPE_STREAM,
+                                        .category = 0,
+                                        .op = 0,
+                                        .length = 0};
+          memcpy(tx_buf, &stream_header, sizeof(stream_header));
+          tx_buf[sizeof(spi_header_t)] = (uint8_t)(batch_len & 0xFF);
+          tx_buf[sizeof(spi_header_t) + 1] = (uint8_t)((batch_len >> 8) & 0xFF);
+          tx_size = SPI_STREAM_FRAME_SIZE;
+          tx_ready = true;
         } else {
           status = SPI_STATUS_UNSUPPORTED;
         }
@@ -343,7 +361,7 @@ static void bridge_task(void *pvParameters) {
                                   .category = header->category,
                                   .op = header->op,
                                   .length = (uint8_t)(resp_len + SPI_RESP_STATUS_SIZE)};
-      memset(tx_buf, 0, sizeof(tx_buf));
+      memset(tx_buf, 0, SPI_FRAME_SIZE);
       memcpy(tx_buf, &resp_header, sizeof(resp_header));
       tx_buf[sizeof(resp_header)] = (uint8_t)status;
       if (resp_len > 0)
@@ -352,7 +370,8 @@ static void bridge_task(void *pvParameters) {
 
     // Arm the response, signal the master, then immediately re-arm the next
     // receive so the slave is ready before the response transfer even completes.
-    spi_slave_driver_queue(&tx_trans, tx_buf, NULL, SPI_FRAME_SIZE);
+    // tx_size is SPI_STREAM_FRAME_SIZE for a batched stream frame, else SPI_FRAME_SIZE.
+    spi_slave_driver_queue(&tx_trans, tx_buf, NULL, tx_size);
     spi_bridge_notify_master();
     memset(rx_buf, 0, sizeof(rx_buf));
     spi_slave_driver_queue(&rx_trans, NULL, rx_buf, SPI_FRAME_SIZE);
