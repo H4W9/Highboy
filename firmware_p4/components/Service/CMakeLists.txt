@@ -96,20 +96,27 @@ idf_component_register(SRCS
     lvgl
     littlefs
     cjson
-    console 
+    console
     argtable3
     app_update
+    esp-serial-flasher
 )
 
-# Embed C5 Firmware Binary into Service component (used by c5_flasher)
-set(C5_BIN_PATH "${CMAKE_SOURCE_DIR}/../firmware_c5/build/TentacleOS_C5.bin")
+# Embed C5 firmware images into Service component (used by c5_flasher).
+# Full image: bootloader (0x2000) + partition table (0x8000) + app (0x10000).
+set(C5_BUILD_DIR "${CMAKE_SOURCE_DIR}/../firmware_c5/build")
+set(C5_BOOTLOADER_PATH "${C5_BUILD_DIR}/bootloader/bootloader.bin")
+set(C5_PARTITION_PATH "${C5_BUILD_DIR}/partition_table/partition-table.bin")
+set(C5_APP_PATH "${C5_BUILD_DIR}/TentacleOS_C5.bin")
 set(C5_FIRMWARE_EMBEDDED 0)
-if(EXISTS ${C5_BIN_PATH})
-    target_add_binary_data(${COMPONENT_LIB} "${C5_BIN_PATH}" BINARY)
+if(EXISTS ${C5_BOOTLOADER_PATH} AND EXISTS ${C5_PARTITION_PATH} AND EXISTS ${C5_APP_PATH})
+    target_add_binary_data(${COMPONENT_LIB} "${C5_BOOTLOADER_PATH}" BINARY)
+    target_add_binary_data(${COMPONENT_LIB} "${C5_PARTITION_PATH}" BINARY)
+    target_add_binary_data(${COMPONENT_LIB} "${C5_APP_PATH}" BINARY)
     set(C5_FIRMWARE_EMBEDDED 1)
-    message(STATUS "Embedding C5 Firmware: ${C5_BIN_PATH}")
+    message(STATUS "Embedding C5 firmware images (bootloader + partition-table + app)")
 else()
-    message(WARNING "C5 Firmware binary not found at ${C5_BIN_PATH}. Firmware update feature will be disabled.")
+    message(WARNING "C5 firmware images not found under ${C5_BUILD_DIR}. C5 update feature will be disabled.")
 endif()
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE C5_FIRMWARE_EMBEDDED=${C5_FIRMWARE_EMBEDDED})

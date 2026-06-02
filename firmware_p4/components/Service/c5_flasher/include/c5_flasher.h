@@ -25,30 +25,23 @@ extern "C" {
 #include "esp_err.h"
 
 /**
- * @brief Initialize UART and GPIO pins for C5 flashing.
+ * @brief Initialize the UART/GPIO serial-flasher port for the C5.
+ *
+ * Wraps esp-serial-flasher's ESP32 port (UART + reset/boot GPIOs).
  *
  * @return ESP_OK on success, or an error code.
  */
 esp_err_t c5_flasher_init(void);
 
 /**
- * @brief Put the C5 into bootloader mode via GPIO strapping.
- */
-void c5_flasher_enter_bootloader(void);
-
-/**
- * @brief Reset the C5 into normal operation mode.
- */
-void c5_flasher_reset_normal(void);
-
-/**
- * @brief Flash the C5 firmware over UART using ESP serial protocol.
+ * @brief Flash the C5 firmware over UART via esp-serial-flasher.
  *
- * If bin_data is NULL and C5_FIRMWARE_EMBEDDED is defined, uses the
- * embedded binary linked at build time.
+ * If bin_data is NULL and C5_FIRMWARE_EMBEDDED is defined, flashes the full
+ * embedded image (bootloader + partition table + app) linked at build time.
+ * If bin_data is non-NULL, flashes that blob to the C5 application offset.
  *
- * @param bin_data  Pointer to firmware binary, or NULL to use embedded.
- * @param bin_size  Size of the binary in bytes.
+ * @param bin_data  Pointer to an app binary, or NULL to use the embedded image.
+ * @param bin_size  Size of the binary in bytes (ignored when bin_data is NULL).
  * @return ESP_OK on success, or an error code.
  */
 esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size);
