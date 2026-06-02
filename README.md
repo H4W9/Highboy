@@ -22,9 +22,8 @@ We are expanding support for the latest Espressif chips:
 
 | Target | Status |
 | :--- | :--- |
-| **ESP32-S3** | Main Development |
-| **ESP32-P4** | Experimental (firmware_p4) |
-| **ESP32-C5** | Experimental (firmware_c5) |
+| **ESP32-P4** | Main Development |
+| **ESP32-C5** | Main Development |
 
 
 ## Firmware Structure

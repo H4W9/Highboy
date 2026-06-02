@@ -23,9 +23,8 @@ Estamos expandindo o suporte para os chips mais recentes da Espressif:
 
 | Alvo | Status |
 | :--- | :--- |
-| **ESP32-S3** | Desenvolvimento Principal |
-| **ESP32-P4** | Experimental (firmware_p4) |
-| **ESP32-C5** | Experimental (firmware_c5) |
+| **ESP32-P4** | Desenvolvimento Principal |
+| **ESP32-C5** | Desenvolvimento Principal |
 
 ---
 
