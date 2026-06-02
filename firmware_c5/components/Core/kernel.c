@@ -29,7 +29,6 @@
 #include "i2c_init.h"
 #include "led_control.h"
 #include "pin_def.h"
-#include "spi.h"
 #include "spi_bridge.h"
 #include "storage_assets.h"
 #include "storage_init.h"
@@ -48,14 +47,13 @@ void kernel_init(void) {
   }
   ESP_ERROR_CHECK(ret);
 
-  spi_init();
   init_i2c();
   // Storage Init
   storage_init();
   storage_assets_init();
   storage_assets_print_info();
 
-  led_rgb_init();
+  // led_rgb_init();
   bq25896_init();
   spi_bridge_slave_init();
 
