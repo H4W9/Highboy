@@ -107,6 +107,14 @@ esp_err_t ir_tx_init(void) {
   if (s_is_tx_inited)
     return ESP_OK;
 
+  if (s_mutex == NULL) {
+    s_mutex = xSemaphoreCreateMutex();
+    if (s_mutex == NULL) {
+      ESP_LOGE(TAG, "Failed to create mutex");
+      return ESP_ERR_NO_MEM;
+    }
+  }
+
   rmt_tx_channel_config_t cfg = {
       .clk_src = RMT_CLK_SRC_DEFAULT,
       .gpio_num = GPIO_IR_TX_PIN,
@@ -224,10 +232,10 @@ void ir_print_raw(const rmt_symbol_word_t *symbols, size_t count) {
 
 void ir_print_data(const ir_data_t *data) {
   ESP_LOGI(TAG,
-           "Protocol: %-10s | Addr: 0x%04X | Cmd: 0x%04X%s",
+           "Protocol: %-10s | Addr: 0x%08lX | Cmd: 0x%08lX%s",
            ir_protocol_name(data->protocol),
-           data->address,
-           data->command,
+           (unsigned long)data->address,
+           (unsigned long)data->command,
            data->repeat ? " [REPEAT]" : "");
 }
 
