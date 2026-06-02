@@ -22,6 +22,209 @@ Every packet follows a 5-byte fixed header:
 built via `SPI_CMD(cat, op)`. Use `spi_header_cmd()` / `spi_header_set_cmd()` to
 read/write the pair as a single 16-bit value.
 
+## Command Reference
+
+Every command's `spi_id_t` packs `Category` (high byte) and `Op` (low byte) via `SPI_CMD(cat, op)`. On the wire those are the 3rd and 4th header bytes; in code use the single 16-bit `SPI_ID_*` constant.
+
+### System (`0x00`)
+
+| Command | Op | `spi_id_t` |
+|---------|----|------------|
+| `SPI_ID_SYSTEM_PING` | `0x01` | `0x0001` |
+| `SPI_ID_SYSTEM_STATUS` | `0x02` | `0x0002` |
+| `SPI_ID_SYSTEM_REBOOT` | `0x03` | `0x0003` |
+| `SPI_ID_SYSTEM_VERSION` | `0x04` | `0x0004` |
+| `SPI_ID_SYSTEM_DATA` | `0x05` | `0x0005` |
+| `SPI_ID_SYSTEM_STREAM` | `0x06` | `0x0006` |
+
+### WiFi (`0x01`)
+
+| Command | Op | `spi_id_t` |
+|---------|----|------------|
+| `SPI_ID_WIFI_SCAN` | `0x10` | `0x0110` |
+| `SPI_ID_WIFI_CONNECT` | `0x11` | `0x0111` |
+| `SPI_ID_WIFI_DISCONNECT` | `0x12` | `0x0112` |
+| `SPI_ID_WIFI_GET_STA_INFO` | `0x13` | `0x0113` |
+| `SPI_ID_WIFI_SET_AP` | `0x14` | `0x0114` |
+| `SPI_ID_WIFI_START` | `0x15` | `0x0115` |
+| `SPI_ID_WIFI_STOP` | `0x16` | `0x0116` |
+| `SPI_ID_WIFI_SAVE_AP_CONFIG` | `0x17` | `0x0117` |
+| `SPI_ID_WIFI_SET_ENABLED` | `0x18` | `0x0118` |
+| `SPI_ID_WIFI_SET_AP_PASSWORD` | `0x19` | `0x0119` |
+| `SPI_ID_WIFI_SET_AP_MAX_CONN` | `0x1A` | `0x011A` |
+| `SPI_ID_WIFI_SET_AP_IP` | `0x1B` | `0x011B` |
+| `SPI_ID_WIFI_PROMISC_START` | `0x1C` | `0x011C` |
+| `SPI_ID_WIFI_PROMISC_STOP` | `0x1D` | `0x011D` |
+| `SPI_ID_WIFI_CH_HOP_START` | `0x1E` | `0x011E` |
+| `SPI_ID_WIFI_CH_HOP_STOP` | `0x1F` | `0x011F` |
+| `SPI_ID_WIFI_APP_SCAN_AP` | `0x20` | `0x0120` |
+| `SPI_ID_WIFI_APP_SCAN_CLIENT` | `0x21` | `0x0121` |
+| `SPI_ID_WIFI_APP_BEACON_SPAM` | `0x22` | `0x0122` |
+| `SPI_ID_WIFI_APP_DEAUTHER` | `0x23` | `0x0123` |
+| `SPI_ID_WIFI_APP_FLOOD` | `0x24` | `0x0124` |
+| `SPI_ID_WIFI_APP_SNIFFER` | `0x25` | `0x0125` |
+| `SPI_ID_WIFI_APP_EVIL_TWIN` | `0x26` | `0x0126` |
+| `SPI_ID_WIFI_APP_DEAUTH_DET` | `0x27` | `0x0127` |
+| `SPI_ID_WIFI_APP_PROBE_MON` | `0x28` | `0x0128` |
+| `SPI_ID_WIFI_APP_SIGNAL_MON` | `0x29` | `0x0129` |
+| `SPI_ID_WIFI_SNIFFER_SET_SNAPLEN` | `0x2B` | `0x012B` |
+| `SPI_ID_WIFI_SNIFFER_SET_VERBOSE` | `0x2C` | `0x012C` |
+| `SPI_ID_WIFI_SNIFFER_SAVE_FLASH` | `0x2D` | `0x012D` |
+| `SPI_ID_WIFI_SNIFFER_SAVE_SD` | `0x2E` | `0x012E` |
+| `SPI_ID_WIFI_SNIFFER_FREE_BUFFER` | `0x2F` | `0x012F` |
+| `SPI_ID_WIFI_SNIFFER_STREAM_SD` | `0x30` | `0x0130` |
+| `SPI_ID_WIFI_SNIFFER_CLEAR_PMKID` | `0x31` | `0x0131` |
+| `SPI_ID_WIFI_SNIFFER_GET_PMKID_BSSID` | `0x32` | `0x0132` |
+| `SPI_ID_WIFI_SNIFFER_CLEAR_HANDSHAKE` | `0x33` | `0x0133` |
+| `SPI_ID_WIFI_SNIFFER_GET_HANDSHAKE_BSSID` | `0x34` | `0x0134` |
+| `SPI_ID_WIFI_DEAUTH_STATUS` | `0x35` | `0x0135` |
+| `SPI_ID_WIFI_DEAUTH_SEND_RAW` | `0x36` | `0x0136` |
+| `SPI_ID_WIFI_ASSOC_REQUEST` | `0x37` | `0x0137` |
+| `SPI_ID_WIFI_DEAUTH_SEND_FRAME` | `0x38` | `0x0138` |
+| `SPI_ID_WIFI_DEAUTH_SEND_BROADCAST` | `0x39` | `0x0139` |
+| `SPI_ID_WIFI_TARGET_SCAN_START` | `0x3A` | `0x013A` |
+| `SPI_ID_WIFI_TARGET_SCAN_STATUS` | `0x3B` | `0x013B` |
+| `SPI_ID_WIFI_TARGET_SAVE_FLASH` | `0x3C` | `0x013C` |
+| `SPI_ID_WIFI_TARGET_SAVE_SD` | `0x3D` | `0x013D` |
+| `SPI_ID_WIFI_TARGET_FREE` | `0x3E` | `0x013E` |
+| `SPI_ID_WIFI_PROBE_SAVE_FLASH` | `0x3F` | `0x013F` |
+| `SPI_ID_WIFI_PROBE_SAVE_SD` | `0x40` | `0x0140` |
+| `SPI_ID_WIFI_EVIL_TWIN_TEMPLATE` | `0x41` | `0x0141` |
+| `SPI_ID_WIFI_EVIL_TWIN_HAS_PASSWORD` | `0x42` | `0x0142` |
+| `SPI_ID_WIFI_EVIL_TWIN_GET_PASSWORD` | `0x43` | `0x0143` |
+| `SPI_ID_WIFI_EVIL_TWIN_RESET_CAPTURE` | `0x44` | `0x0144` |
+| `SPI_ID_WIFI_CLIENT_SAVE_FLASH` | `0x45` | `0x0145` |
+| `SPI_ID_WIFI_CLIENT_SAVE_SD` | `0x46` | `0x0146` |
+| `SPI_ID_WIFI_AP_SAVE_FLASH` | `0x47` | `0x0147` |
+| `SPI_ID_WIFI_AP_SAVE_SD` | `0x48` | `0x0148` |
+| `SPI_ID_WIFI_PORT_SCAN_TARGET_RANGE` | `0x49` | `0x0149` |
+| `SPI_ID_WIFI_PORT_SCAN_TARGET_LIST` | `0x4A` | `0x014A` |
+| `SPI_ID_WIFI_PORT_SCAN_NETWORK` | `0x4B` | `0x014B` |
+| `SPI_ID_WIFI_PORT_SCAN_CIDR` | `0x4C` | `0x014C` |
+| `SPI_ID_WIFI_PORT_SCAN_STOP` | `0x4D` | `0x014D` |
+| `SPI_ID_WIFI_GET_MAC` | `0x4E` | `0x014E` |
+| `SPI_ID_WIFI_GET_IP_INFO` | `0x4F` | `0x014F` |
+| `SPI_ID_WIFI_EVIL_TWIN_TMPL_BEGIN` | `0xA0` | `0x01A0` |
+| `SPI_ID_WIFI_EVIL_TWIN_TMPL_CHUNK` | `0xA1` | `0x01A1` |
+
+### Bluetooth (`0x02`)
+
+| Command | Op | `spi_id_t` |
+|---------|----|------------|
+| `SPI_ID_BT_SCAN` | `0x50` | `0x0250` |
+| `SPI_ID_BT_CONNECT` | `0x51` | `0x0251` |
+| `SPI_ID_BT_DISCONNECT` | `0x52` | `0x0252` |
+| `SPI_ID_BT_GET_INFO` | `0x53` | `0x0253` |
+| `SPI_ID_BT_INIT` | `0x54` | `0x0254` |
+| `SPI_ID_BT_DEINIT` | `0x55` | `0x0255` |
+| `SPI_ID_BT_START` | `0x56` | `0x0256` |
+| `SPI_ID_BT_STOP` | `0x57` | `0x0257` |
+| `SPI_ID_BT_SET_RANDOM_MAC` | `0x58` | `0x0258` |
+| `SPI_ID_BT_START_ADV` | `0x59` | `0x0259` |
+| `SPI_ID_BT_STOP_ADV` | `0x5A` | `0x025A` |
+| `SPI_ID_BT_SET_MAX_POWER` | `0x5B` | `0x025B` |
+| `SPI_ID_BT_TRACKER_START` | `0x5C` | `0x025C` |
+| `SPI_ID_BT_TRACKER_STOP` | `0x5D` | `0x025D` |
+| `SPI_ID_BT_GET_ADDR_TYPE` | `0x5E` | `0x025E` |
+| `SPI_ID_BT_SAVE_ANNOUNCE_CFG` | `0x5F` | `0x025F` |
+| `SPI_ID_BT_APP_SCANNER` | `0x60` | `0x0260` |
+| `SPI_ID_BT_APP_SNIFFER` | `0x61` | `0x0261` |
+| `SPI_ID_BT_APP_SPAM` | `0x62` | `0x0262` |
+| `SPI_ID_BT_APP_FLOOD` | `0x63` | `0x0263` |
+| `SPI_ID_BT_APP_SKIMMER` | `0x64` | `0x0264` |
+| `SPI_ID_BT_APP_TRACKER` | `0x65` | `0x0265` |
+| `SPI_ID_BT_APP_GATT_EXP` | `0x66` | `0x0266` |
+| `SPI_ID_BT_SPAM_LIST_LOAD` | `0x68` | `0x0268` |
+| `SPI_ID_BT_SPAM_LIST_BEGIN` | `0x69` | `0x0269` |
+| `SPI_ID_BT_SPAM_LIST_ITEM` | `0x6A` | `0x026A` |
+| `SPI_ID_BT_SPAM_LIST_COMMIT` | `0x6B` | `0x026B` |
+| `SPI_ID_BT_SCREEN_INIT` | `0x6C` | `0x026C` |
+| `SPI_ID_BT_SCREEN_DEINIT` | `0x6D` | `0x026D` |
+| `SPI_ID_BT_SCREEN_IS_ACTIVE` | `0x6E` | `0x026E` |
+| `SPI_ID_BT_SCREEN_SEND_PARTIAL` | `0x6F` | `0x026F` |
+| `SPI_ID_BT_L2CAP_STATUS` | `0x70` | `0x0270` |
+| `SPI_ID_BT_HID_INIT` | `0x71` | `0x0271` |
+| `SPI_ID_BT_HID_DEINIT` | `0x72` | `0x0272` |
+| `SPI_ID_BT_HID_IS_CONNECTED` | `0x73` | `0x0273` |
+| `SPI_ID_BT_HID_SEND_KEY` | `0x74` | `0x0274` |
+
+### LoRa (`0x03`)
+
+| Command | Op | `spi_id_t` |
+|---------|----|------------|
+| `SPI_ID_LORA_RX` | `0x80` | `0x0380` |
+| `SPI_ID_LORA_TX` | `0x81` | `0x0381` |
+
+### Meshtastic (`0x04`)
+
+| Command | Op | `spi_id_t` |
+|---------|----|------------|
+| `SPI_ID_MESH_BLE_INIT` | `0x90` | `0x0490` |
+| `SPI_ID_MESH_BLE_STOP` | `0x91` | `0x0491` |
+| `SPI_ID_MESH_WIFI_INIT` | `0x92` | `0x0492` |
+| `SPI_ID_MESH_WIFI_STOP` | `0x93` | `0x0493` |
+| `SPI_ID_MESH_FROMRADIO_PUSH` | `0x94` | `0x0494` |
+| `SPI_ID_MESH_LOG_PUSH` | `0x95` | `0x0495` |
+| `SPI_ID_MESH_STATUS` | `0x96` | `0x0496` |
+| `SPI_ID_MESH_TORADIO_STREAM` | `0x97` | `0x0497` |
+
+### MeshCore (`0x05`)
+
+| Command | Op | `spi_id_t` |
+|---------|----|------------|
+| `SPI_ID_MCORE_BLE_INIT` | `0x98` | `0x0598` |
+| `SPI_ID_MCORE_BLE_STOP` | `0x99` | `0x0599` |
+| `SPI_ID_MCORE_TX_PUSH` | `0x9A` | `0x059A` |
+| `SPI_ID_MCORE_RX_STREAM` | `0x9B` | `0x059B` |
+| `SPI_ID_MCORE_STATUS` | `0x9C` | `0x059C` |
+
+### Session (`0xFF`)
+
+| Command | Op | `spi_id_t` |
+|---------|----|------------|
+| `SPI_ID_SESSION_HEARTBEAT` | `0xF0` | `0xFFF0` |
+| `SPI_ID_SESSION_LOST` | `0xF1` | `0xFFF1` |
+| `SPI_ID_SESSION_STOP` | `0xF2` | `0xFFF2` |
+
+## Frame Example
+
+The 5-byte header maps directly to `spi_header_t`:
+
+```c
+typedef struct {
+  uint8_t sync;     // 0xAA
+  uint8_t type;     // spi_type_t: CMD 0x01 / RESP 0x02 / STREAM 0x03
+  uint8_t category; // spi_cat_t
+  uint8_t op;       // operation within the category
+  uint8_t length;   // payload bytes that follow (0-255)
+} spi_header_t;
+```
+
+**Example — WiFi scan** (`SPI_ID_WIFI_SCAN` = `SPI_CMD(SPI_CAT_WIFI, 0x10)` = `0x0110`), no payload:
+
+```
+P4 -> C5  (command)
+  AA 01 01 10 00
+  ^  ^  ^  ^  ^
+  |  |  |  |  +-- length = 0
+  |  |  |  +----- op       = 0x10
+  |  |  +-------- category = 0x01 (WiFi)
+  |  +----------- type     = 0x01 (CMD)
+  +-------------- sync     = 0xAA
+
+C5 -> P4  (response, after raising IRQ) — payload byte 0 is the status
+  AA 02 01 10 01 00
+  ^  ^  ^  ^  ^  ^
+  |  |  |  |  |  +-- status   = 0x00 (SPI_STATUS_OK)
+  |  |  |  |  +----- length   = 1
+  |  |  |  +-------- op       = 0x10
+  |  |  +----------- category = 0x01
+  |  +-------------- type     = 0x02 (RESP)
+  +----------------- sync     = 0xAA
+```
+
+Scan results are then pulled item-by-item through the **Generic Data Pipe** (`SPI_ID_SYSTEM_DATA`) described below.
+
 ## Generic Data Pipe
 To keep the bridge simple, we use a "Dumb Pipe" approach for large data sets (like Scan results):
 1. **Pull Count**: Call `SPI_ID_SYSTEM_DATA` with index `0xFFFF`.
