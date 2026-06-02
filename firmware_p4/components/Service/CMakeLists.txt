@@ -35,6 +35,9 @@ idf_component_register(SRCS
 
   "ir/ir.c"
   "ir/ir_file.c"
+  "ir/ir_ac.c"
+  "ir/ir_ac_coolix.c"
+  "ir/ir_ac_gree.c"
   "ir/ir_protocol.c"
   "ir/ir_protocol_nec.c"
   "ir/ir_protocol_samsung.c"
@@ -42,6 +45,8 @@ idf_component_register(SRCS
   "ir/ir_protocol_jvc.c"
   "ir/ir_protocol_denon.c"
   "ir/ir_protocol_panasonic.c"
+  "ir/ir_protocol_rca.c"
+  "ir/ir_protocol_pioneer.c"
   "ir/ir_protocol_rc6.c"
   "ir/ir_protocol_rc5.c"
   "ir/ir_protocol_sony.c"
