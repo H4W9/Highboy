@@ -54,6 +54,20 @@ extern "C" {
  */
 size_t ir_ac_coolix_encode(const ir_ac_state_t *state, rmt_symbol_word_t *symbols, size_t max);
 
+/**
+ * @brief Decode RMT symbols into a Coolix AC state.
+ *
+ * Validates the header and the three byte/complement pairs before extracting
+ * power, mode, temperature and fan.
+ *
+ * @param[in]  symbols    RMT symbol buffer. Must not be NULL.
+ * @param[in]  count      Number of symbols.
+ * @param[out] out_state  Destination for the decoded state. Must not be NULL.
+ *
+ * @return true if the frame is a valid Coolix state, false otherwise.
+ */
+bool ir_ac_coolix_decode(const rmt_symbol_word_t *symbols, size_t count, ir_ac_state_t *out_state);
+
 #ifdef __cplusplus
 }
 #endif
