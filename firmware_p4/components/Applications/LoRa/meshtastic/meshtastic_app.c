@@ -66,6 +66,8 @@ esp_err_t meshtastic_app_start(void) {
   mt_region_t region = mt_region_current();
   uint32_t freq_hz = mt_region_freq_for_channel(region, MT_PRIMARY_CHANNEL, p_info->bw_hz);
 
+  sx1262_deinit();
+
   sx1262_config_t cfg = {0};
   ret = sx1262_hal_create(&cfg.hal);
   if (ret != ESP_OK) {

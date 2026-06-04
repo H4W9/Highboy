@@ -26,10 +26,10 @@
 
 static const char *TAG = "C5_FLASHER";
 
-#define FLASHER_UART       UART_NUM_1
-#define FLASHER_INIT_BAUD  115200
-#define FLASHER_FAST_BAUD  921600
-#define FLASH_BLOCK_SIZE   1024
+#define FLASHER_UART      UART_NUM_1
+#define FLASHER_INIT_BAUD 115200
+#define FLASHER_FAST_BAUD 921600
+#define FLASH_BLOCK_SIZE  1024
 
 // C5 flash layout (matches firmware_c5 partition table / flash_args).
 #define C5_BOOTLOADER_OFFSET 0x2000
@@ -106,9 +106,13 @@ esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size) {
   } else {
 #if C5_FIRMWARE_EMBEDDED
     const c5_image_t images[] = {
-        {"bootloader", C5_BOOTLOADER_OFFSET, c5_bootloader_start,
+        {"bootloader",
+         C5_BOOTLOADER_OFFSET,
+         c5_bootloader_start,
          (uint32_t)(c5_bootloader_end - c5_bootloader_start)},
-        {"partition-table", C5_PARTITION_OFFSET, c5_partition_start,
+        {"partition-table",
+         C5_PARTITION_OFFSET,
+         c5_partition_start,
          (uint32_t)(c5_partition_end - c5_partition_start)},
         {"app", C5_APP_OFFSET, c5_app_start, (uint32_t)(c5_app_end - c5_app_start)},
     };
