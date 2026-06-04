@@ -106,7 +106,10 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t func, const char *name, uint32
     pthread_t thread;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, 8192);  // minimal for shim
+    // firmware tasks request stack in words; on host use 4KB minimum or 2x requested
+    size_t stack_bytes = stack_depth * sizeof(void *);
+    if (stack_bytes < 65536) stack_bytes = 65536; // 64KB minimum for host threads
+    pthread_attr_setstacksize(&attr, stack_bytes);
     pthread_create(&thread, &attr, task_wrapper, info);
     info->thread = thread;
 
