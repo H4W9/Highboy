@@ -56,6 +56,8 @@ FetchContent_MakeAvailable(googletest)
 
 FetchContent_Declare(lvgl GIT_REPOSITORY https://github.com/lvgl/lvgl.git GIT_TAG v9.2.2)
 set(LV_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h" CACHE STRING "" FORCE)
+set(LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(lvgl)
 
 find_package(SDL2 QUIET)
@@ -86,6 +88,7 @@ add_library(firmware_p4 STATIC
     ${P4_VFS_CORE} ${P4_VFS_AUTO}
 )
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${P4_INCLUDES})
+target_include_directories(firmware_p4 SYSTEM PRIVATE ${lvgl_SOURCE_DIR})
 target_compile_options(firmware_p4 PRIVATE -Wno-implicit-function-declaration)
 
 # ── Tests ────────────────────────────────────────────────────────────────────
@@ -99,9 +102,7 @@ gtest_discover_tests(hle_tests)
 
 # ── Interactive ──────────────────────────────────────────────────────────────
 if(SDL2_FOUND)
-    add_executable(hle_interactive ${HLE_SRC_DIR}/main.cpp)
-    target_link_libraries(hle_interactive PRIVATE hle_shims firmware_c5 firmware_p4 lvgl SDL2::SDL2 pthread)
+    add_executable(hle_interactive EXCLUDE_FROM_ALL ${HLE_SRC_DIR}/main.cpp)
+    target_link_libraries(hle_interactive PRIVATE hle_shims lvgl SDL2::SDL2 pthread)
     message(STATUS "SDL2 found — hle_interactive enabled")
-else()
-    message(STATUS "SDL2 not found — hle_interactive disabled")
 endif()

@@ -28,6 +28,7 @@
 #include "hle/spi_bridge_channel.h"
 #include "hle/hle_display.h"
 #include "esp_lcd_panel_ops.h"
+#include "esp_vfs_fat.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -713,3 +714,44 @@ esp_err_t esp_lcd_panel_io_register_event_callbacks(esp_lcd_panel_io_handle_t io
     }
     return ESP_OK;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VFS / Storage stubs (mount to host tmpdir)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#include <sys/stat.h>
+#include <sys/types.h>
+
+static std::string s_base_path = "/tmp/hle_storage";
+
+void hle_set_storage_path(const char *path) { s_base_path = path; }
+
+extern "C" {
+
+esp_err_t esp_vfs_fat_sdmmc_mount(const char *base_path, const sdmmc_host_t *host, const void *slot,
+                                   const void *mount_conf, sdmmc_card_t **out_card) {
+    (void)host; (void)slot; (void)mount_conf;
+    std::string dir = s_base_path + (base_path ? base_path : "/sdcard");
+    mkdir(dir.c_str(), 0755);
+    fprintf(stderr, "I [VFS] Mounted HLE storage at %s\n", dir.c_str());
+    if (out_card) *out_card = (sdmmc_card_t *)0x1;
+    return ESP_OK;
+}
+
+esp_err_t esp_vfs_fat_sdmmc_unmount(void) { return ESP_OK; }
+esp_err_t esp_vfs_fat_sdcard_unmount(const char *base_path, sdmmc_card_t *card) {
+    (void)base_path; (void)card; return ESP_OK;
+}
+
+esp_err_t esp_vfs_fat_spiflash_mount(const char *base, const char *part_label, const void *mount, void *wl_handle) {
+    (void)base; (void)part_label; (void)mount; (void)wl_handle;
+    std::string dir = s_base_path + "/assets";
+    mkdir(dir.c_str(), 0755);
+    return ESP_OK;
+}
+
+esp_err_t esp_vfs_fat_spiflash_unmount(const char *base, void *wl_handle) {
+    (void)base; (void)wl_handle; return ESP_OK;
+}
+
+} // extern "C"
