@@ -57,7 +57,7 @@ FetchContent_Declare(googletest GIT_REPOSITORY https://github.com/google/googlet
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-FetchContent_Declare(lvgl GIT_REPOSITORY https://github.com/lvgl/lvgl.git GIT_TAG v9.2.2)
+FetchContent_Declare(lvgl GIT_REPOSITORY https://github.com/lvgl/lvgl.git GIT_TAG v9.4.0)
 set(LV_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h" CACHE STRING "" FORCE)
 set(LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
@@ -65,7 +65,9 @@ FetchContent_MakeAvailable(lvgl)
 
 find_package(SDL2 QUIET)
 
-# ── Common compile flags ─────────────────────────────────────────────────────
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+set(CMAKE_C_FLAGS_DEBUG "-g -O0")
+set(CMAKE_BUILD_TYPE Debug)
 add_compile_definitions(HLE_BUILD)
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-variable
     -Wno-sign-compare -Wno-missing-field-initializers -fno-strict-aliasing)
