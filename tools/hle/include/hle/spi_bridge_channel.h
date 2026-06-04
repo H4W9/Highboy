@@ -97,3 +97,8 @@ private:
 };
 
 }  // namespace hle
+
+// Global bridge channel pointer for firmware shims
+extern "C" {
+void hle_set_bridge_channel(hle::SPIBridgeChannel *ch);
+}

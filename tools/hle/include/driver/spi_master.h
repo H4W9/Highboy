@@ -29,12 +29,6 @@ typedef struct {
 } spi_device_interface_config_t;
 
 typedef struct {
-    size_t length;
-    const void *tx_buffer;
-    void *rx_buffer;
-} spi_transaction_t;
-
-typedef struct {
     int mosi_io_num;
     int miso_io_num;
     int sclk_io_num;
@@ -43,6 +37,12 @@ typedef struct {
     int max_transfer_sz;
     int flags;
 } spi_bus_config_t;
+
+typedef struct {
+    size_t length;
+    const void *tx_buffer;
+    void *rx_buffer;
+} spi_transaction_t;
 
 esp_err_t spi_bus_initialize(spi_host_device_t host, const spi_bus_config_t *bus, int dma);
 esp_err_t spi_bus_add_device(spi_host_device_t host, const spi_device_interface_config_t *dev, spi_device_handle_t *handle);

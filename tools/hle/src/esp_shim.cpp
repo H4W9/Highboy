@@ -18,12 +18,14 @@
 #include "driver/gpio.h"
 #include "driver/i2c.h"
 #include "driver/spi_master.h"
+#include "driver/spi_slave.h"
 #include "driver/rmt.h"
 #include "led_strip.h"
 #include "sdmmc_cmd.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
+#include "hle/spi_bridge_channel.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -554,6 +556,61 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, const void *tr
     (void)handle; (void)trans; return ESP_OK;
 }
 esp_err_t spi_bus_remove_device(spi_device_handle_t handle) { (void)handle; return ESP_OK; }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPI Bridge Channel Integration
+// ═══════════════════════════════════════════════════════════════════════════════
+
+static hle::SPIBridgeChannel *s_bridge_channel = nullptr;
+
+void hle_set_bridge_channel(hle::SPIBridgeChannel *ch) { s_bridge_channel = ch; }
+
+static const size_t B_FRAME = 260;
+
+// SPI slave stubs — wired to in-memory channel
+esp_err_t spi_slave_initialize(int host, const spi_bus_config_t *bus,
+                                const spi_slave_interface_config_t *cfg, int dma) {
+    (void)host; (void)bus; (void)cfg; (void)dma; return ESP_OK;
+}
+
+esp_err_t spi_slave_transmit(int host, spi_slave_transaction_t *trans, int timeout) {
+    (void)host; (void)timeout;
+    if (!s_bridge_channel) return ESP_FAIL;
+
+    if (trans->tx_buffer == nullptr && trans->rx_buffer != nullptr) {
+        // Slave is waiting for a command from master
+        uint8_t cmd_id, payload[256], len;
+        if (!s_bridge_channel->slave_wait_command(cmd_id, payload, len)) return ESP_FAIL;
+
+        // Copy command frame into rx_buffer
+        uint8_t *rx = static_cast<uint8_t *>(trans->rx_buffer);
+        memset(rx, 0, B_FRAME);
+        rx[0] = 0xAA;  // sync
+        rx[1] = 0x01;  // CMD type
+        rx[2] = cmd_id;
+        rx[3] = len;
+        if (len > 0) memcpy(rx + 4, payload, len);
+    } else if (trans->tx_buffer != nullptr && trans->rx_buffer == nullptr) {
+        // Slave is sending response back to master
+        // The tx_buffer contains the response frame [sync, type, id, len, status, payload...]
+        const uint8_t *tx = static_cast<const uint8_t *>(trans->tx_buffer);
+        uint8_t sync = tx[0], type = tx[1], cmd_id = tx[2], plen = tx[3];
+        if (sync != 0xAA) return ESP_FAIL;
+        if (type == 0x02) {
+            // Response: payload starts at byte 5 (after header + status)
+            uint8_t status = (plen > 0) ? tx[4] : 0;
+            uint8_t data_len = (plen > 0) ? plen - 1 : 0;
+            s_bridge_channel->slave_send_response(cmd_id, status, tx + 5, data_len);
+        } else if (type == 0x03) {
+            // Stream
+            uint8_t data_len = (plen > 0) ? plen : 0;
+            s_bridge_channel->slave_send_stream(cmd_id, tx + 4, data_len);
+        }
+        s_bridge_channel->slave_notify_irq();
+    }
+
+    return ESP_OK;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // LED Strip Stubs

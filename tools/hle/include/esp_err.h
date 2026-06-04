@@ -12,6 +12,7 @@ typedef int32_t esp_err_t;
 #define ESP_FAIL        (-1)
 #define ESP_ERR_NO_MEM  0x101
 #define ESP_ERR_INVALID_ARG  0x102
+#define ESP_ERR_INVALID_SIZE 0x105
 #define ESP_ERR_INVALID_STATE 0x103
 #define ESP_ERR_INVALID_RESPONSE 0x104
 #define ESP_ERR_TIMEOUT 0x107
@@ -22,6 +23,7 @@ typedef int32_t esp_err_t;
 
 // FreeRTOS compatibility for non-FreeRTOS code
 #define portTICK_PERIOD_MS 1
+#define portMAX_DELAY     ((uint32_t)0xFFFFFFFF)
 
 #define ESP_OK_CHECK(x) do { esp_err_t _err = (x); if (_err != ESP_OK) return _err; } while(0)
 

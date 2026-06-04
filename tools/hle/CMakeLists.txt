@@ -41,6 +41,7 @@ collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/session_manager.c" C5_SVC_SESSION)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/wifi_dispatcher.c" C5_SVC_WIFI_DISP)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/bt_dispatcher.c" C5_SVC_BT_DISP)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Drivers/spi_slave/spi_slave_driver.c" C5_DRV_SPI_SLAVE)
 
 # ── Common compile flags ─────────────────────────────────────────────────────
 add_compile_definitions(HLE_BUILD)
@@ -62,7 +63,9 @@ target_compile_options(hle_shims PRIVATE -Wno-pmf-conversions)
 # ── Static library: firmware_c5 core (compiled against HLE shims) ────────────
 add_library(firmware_c5_phase1 STATIC
     ${C5_CORE_SRC} ${C5_MAIN_SRC}
-    ${C5_DRV_BQ25896} ${C5_DRV_BUTTONS} ${C5_DRV_I2C} ${C5_DRV_LED} ${C5_DRV_SPI}
+    ${C5_DRV_BQ25896} ${C5_DRV_BUTTONS} ${C5_DRV_I2C} ${C5_DRV_LED} ${C5_DRV_SPI} ${C5_DRV_SPI_SLAVE}
+    ${C5_SVC_SPI_BRIDGE_CORE} ${C5_SVC_SESSION}
+    ${C5_SVC_WIFI_DISP} ${C5_SVC_BT_DISP}
 )
 target_include_directories(firmware_c5_phase1 SYSTEM PRIVATE
     ${HLE_INCLUDE_DIR}
