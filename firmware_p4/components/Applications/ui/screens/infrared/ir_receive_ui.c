@@ -72,10 +72,11 @@ static TaskHandle_t s_rx_task_handle = NULL;
 static volatile bool s_is_rx_done = false;
 static volatile bool s_is_rx_success = false;
 static volatile bool s_is_rx_ac = false;
+static volatile bool s_is_rx_raw = false;
 static ir_data_t s_rx_result;
 static ir_ac_state_t s_rx_ac_result;
-static rmt_symbol_word_t s_rx_ac_raw[IR_RMT_MEM_SYMBOLS];
-static size_t s_rx_ac_raw_count = 0;
+static rmt_symbol_word_t s_rx_raw[IR_MAX_SYMBOLS];
+static size_t s_rx_raw_count = 0;
 
 static void rx_task(void *pvParameters);
 static void on_save_result(bool is_confirm);
@@ -163,18 +164,19 @@ static void rx_task(void *pvParameters) {
   ir_rx_init();
 
   s_is_rx_ac = false;
+  s_is_rx_raw = false;
   esp_err_t ret = ir_receive(&s_rx_result, RX_TIMEOUT_MS);
 
   if (ret == ESP_OK) {
     s_is_rx_success = true;
-  } else if (ret == ESP_ERR_NOT_FOUND) {
-    if (ir_get_last_raw(s_rx_ac_raw, IR_RMT_MEM_SYMBOLS, &s_rx_ac_raw_count) == ESP_OK &&
-        ir_ac_decode(s_rx_ac_raw, s_rx_ac_raw_count, &s_rx_ac_result)) {
-      s_is_rx_success = true;
+  } else if (ret == ESP_ERR_NOT_FOUND &&
+             ir_get_last_raw(s_rx_raw, IR_MAX_SYMBOLS, &s_rx_raw_count) == ESP_OK &&
+             s_rx_raw_count > 0) {
+    s_is_rx_success = true;
+    if (ir_ac_decode(s_rx_raw, s_rx_raw_count, &s_rx_ac_result))
       s_is_rx_ac = true;
-    } else {
-      s_is_rx_success = false;
-    }
+    else
+      s_is_rx_raw = true;
   } else {
     s_is_rx_success = false;
   }
@@ -208,12 +210,21 @@ static void on_name_entered(const char *text, void *user_data) {
   if (s_is_rx_ac) {
     ir_file_add_raw_cfg_t cfg = {
         .name = text,
-        .symbols = s_rx_ac_raw,
-        .count = s_rx_ac_raw_count,
+        .symbols = s_rx_raw,
+        .count = s_rx_raw_count,
         .freq = ir_ac_carrier_freq(s_rx_ac_result.protocol),
     };
     ir_file_add_raw(&file, &cfg);
     proto = ir_ac_protocol_name(s_rx_ac_result.protocol);
+  } else if (s_is_rx_raw) {
+    ir_file_add_raw_cfg_t cfg = {
+        .name = text,
+        .symbols = s_rx_raw,
+        .count = s_rx_raw_count,
+        .freq = IR_CARRIER_HZ_DEFAULT,
+    };
+    ir_file_add_raw(&file, &cfg);
+    proto = "RAW";
   } else {
     ir_file_add_parsed(&file, text, &s_rx_result);
     proto = ir_protocol_name(s_rx_result.protocol);
@@ -292,6 +303,8 @@ static void show_result(void) {
       } else {
         snprintf(buf, sizeof(buf), "AC: %s\nOff", ir_ac_protocol_name(s_rx_ac_result.protocol));
       }
+    } else if (s_is_rx_raw) {
+      snprintf(buf, sizeof(buf), "Raw signal\n%u symbols", (unsigned)s_rx_raw_count);
     } else {
       snprintf(buf,
                sizeof(buf),
