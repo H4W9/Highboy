@@ -1,0 +1,106 @@
+cmake_minimum_required(VERSION 3.16)
+project(TentacleOS_HLE C CXX)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+set(FIRMWARE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set(HLE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set(HLE_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# ── Collect firmware component include dirs ───────────────────────────────────
+function(collect_firmware_includes TARGET_DIR OUTPUT_VAR)
+    set(_includes "")
+    file(GLOB_RECURSE _dirs LIST_DIRECTORIES true "${TARGET_DIR}/components/*/include")
+    foreach(_dir ${_dirs})
+        list(APPEND _includes ${_dir})
+    endforeach()
+    set(${OUTPUT_VAR} ${_includes} PARENT_SCOPE)
+endfunction()
+
+collect_firmware_includes("${FIRMWARE_ROOT}/firmware_c5" C5_INCLUDES)
+collect_firmware_includes("${FIRMWARE_ROOT}/firmware_p4" P4_INCLUDES)
+
+# ── Collect firmware source files ─────────────────────────────────────────────
+function(collect_firmware_sources TARGET_DIR PATTERN OUTPUT_VAR)
+    file(GLOB_RECURSE _sources "${TARGET_DIR}/${PATTERN}")
+    set(${OUTPUT_VAR} ${_sources} PARENT_SCOPE)
+endfunction()
+
+# Phase-by-phase firmware source files (expand as we add more shims)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Core/*.c" C5_CORE_SRC)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "main/*.c" C5_MAIN_SRC)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Drivers/bq25896/*.c" C5_DRV_BQ25896)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Drivers/buttons_gpio/*.c" C5_DRV_BUTTONS)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Drivers/i2c_init/*.c" C5_DRV_I2C)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Drivers/led/*.c" C5_DRV_LED)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Drivers/spi/*.c" C5_DRV_SPI)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/spi_bridge.c" C5_SVC_SPI_BRIDGE_CORE)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/session_manager.c" C5_SVC_SESSION)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/wifi_dispatcher.c" C5_SVC_WIFI_DISP)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/bt_dispatcher.c" C5_SVC_BT_DISP)
+
+# ── Common compile flags ─────────────────────────────────────────────────────
+add_compile_definitions(HLE_BUILD)
+
+add_compile_options(
+    -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable
+    -Wno-sign-compare -Wno-missing-field-initializers
+    -fno-strict-aliasing
+)
+
+# ── HLE shim sources ─────────────────────────────────────────────────────────
+file(GLOB_RECURSE HLE_SRC "${HLE_SRC_DIR}/*.cpp")
+
+# ── Static library: HLE shim implementations ─────────────────────────────────
+add_library(hle_shims STATIC ${HLE_SRC})
+target_include_directories(hle_shims PUBLIC ${HLE_INCLUDE_DIR})
+target_compile_options(hle_shims PRIVATE -Wno-pmf-conversions)
+
+# ── Static library: firmware_c5 core (compiled against HLE shims) ────────────
+add_library(firmware_c5_phase1 STATIC
+    ${C5_CORE_SRC} ${C5_MAIN_SRC}
+    ${C5_DRV_BQ25896} ${C5_DRV_BUTTONS} ${C5_DRV_I2C} ${C5_DRV_LED} ${C5_DRV_SPI}
+)
+target_include_directories(firmware_c5_phase1 SYSTEM PRIVATE
+    ${HLE_INCLUDE_DIR}
+    ${C5_INCLUDES}
+)
+target_compile_options(firmware_c5_phase1 PRIVATE -Wno-implicit-function-declaration)
+
+# ── GoogleTest ───────────────────────────────────────────────────────────────
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.14.0
+)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+
+# ── Test executable ──────────────────────────────────────────────────────────
+file(GLOB_RECURSE TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp")
+
+add_executable(hle_tests ${TEST_SOURCES})
+target_link_libraries(hle_tests PRIVATE
+    hle_shims
+    GTest::gtest_main
+    pthread
+)
+target_include_directories(hle_tests PRIVATE ${HLE_INCLUDE_DIR})
+
+include(GoogleTest)
+gtest_discover_tests(hle_tests)
+
+# ── Interactive executable (requires SDL2) ────────────────────────────────────
+find_package(SDL2 QUIET)
+if(SDL2_FOUND)
+    # TODO: add hle_interactive target when firmware compiles
+    message(STATUS "SDL2 found — hle_interactive target will be enabled later")
+else()
+    message(STATUS "SDL2 not found — hle_interactive target disabled")
+endif()
