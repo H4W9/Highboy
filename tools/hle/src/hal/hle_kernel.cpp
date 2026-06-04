@@ -35,15 +35,13 @@ void hle_set_bridge_channel(void *ch) {
 
 extern "C" {
 
-void ota_post_boot_check(void) {}
+esp_err_t ota_post_boot_check(void) { return ESP_OK; }
 void wifi_service_init(void) {}
-void console_service_init(void) {}
-void bridge_manager_init(void) {}
-void cc1101_init(void) {}
-void ys_rfid2_init(const void *cfg) { (void)cfg; }
-void led_rgb_init(void) {}
-void tos_log_init(void) {}
-void tos_first_boot_setup(void) {}
+esp_err_t console_service_init(void) { return ESP_OK; }
+esp_err_t bridge_manager_init(void) { return ESP_OK; }
+esp_err_t ys_rfid2_init(const void *cfg) { (void)cfg; return ESP_OK; }
+esp_err_t tos_log_init(void) { return ESP_OK; }
+esp_err_t tos_first_boot_setup(void) { return ESP_OK; }
 
 // ── Stubs for excluded hardware-specific implementation files ───────────────
 // (bluetooth_service.c, wifi_service.c, console/cmds, etc. are excluded
@@ -51,20 +49,20 @@ void tos_first_boot_setup(void) {}
 
 bool wifi_service_is_active(void) { return false; }
 bool wifi_service_is_connected(void) { return false; }
-void wifi_service_set_enabled(bool en) { (void)en; }
+esp_err_t wifi_service_set_enabled(bool en) { (void)en; return ESP_OK; }
 
-void ledc_timer_config(const void *cfg) { (void)cfg; }
-void ledc_channel_config(const void *cfg) { (void)cfg; }
-void ledc_set_duty(int mode, int chan, int timer, int duty) { (void)mode; (void)chan; (void)timer; (void)duty; }
-void ledc_update_duty(int mode, int chan, int timer, int duty) { (void)mode; (void)chan; (void)timer; (void)duty; }
+esp_err_t ledc_timer_config(const void *cfg) { (void)cfg; return ESP_OK; }
+esp_err_t ledc_channel_config(const void *cfg) { (void)cfg; return ESP_OK; }
+esp_err_t ledc_set_duty(int mode, int chan, int duty) { (void)mode; (void)chan; (void)duty; return ESP_OK; }
+esp_err_t ledc_update_duty(int mode, int chan) { (void)mode; (void)chan; return ESP_OK; }
 
-void bad_usb_init(void) {}
-void bad_usb_deinit(void) {}
+esp_err_t bad_usb_init(void) { return ESP_OK; }
+esp_err_t bad_usb_deinit(void) { return ESP_OK; }
 void bad_usb_wait_for_connection(void) {}
-void ducky_set_layout(const void *layout) { (void)layout; }
-void ducky_set_progress_callback(void *cb, void *ctx) { (void)cb; (void)ctx; }
+void ducky_set_layout(int layout) { (void)layout; }
+void ducky_set_progress_callback(void (*cb)(int, int)) { (void)cb; }
 void ducky_abort(void) {}
-void ducky_run_from_assets(const char *path) { (void)path; }
+esp_err_t ducky_run_from_assets(const char *path) { (void)path; return ESP_OK; }
 
 void ui_connect_bt_open(void) {}
 void ui_connect_wifi_open(void) {}
@@ -109,18 +107,6 @@ void ui_sound_settings_open(void) {}
 void ui_battery_settings_open(void) {}
 void ui_connection_settings_open(void) {}
 void ui_about_settings_open(void) {}
-
-// VFS backend stubs (mount host tmpdir)
-static bool s_vfs_mounted = false;
-bool vfs_sdcard_is_mounted(void) { return s_vfs_mounted; }
-void vfs_register_sd_backend(void) {
-    std::string dir = "/tmp/hle_sdcard";
-    mkdir(dir.c_str(), 0755);
-    s_vfs_mounted = true;
-    fprintf(stderr, "I [VFS] HLE SD card mounted at %s\n", dir.c_str());
-}
-void vfs_unregister_sd_backend(void) { s_vfs_mounted = false; }
-
 void ui_theme_selector_open(void) {}
 void ui_ir_menu_open(void) {}
 void ui_ir_receive_open(void) {}
@@ -129,16 +115,20 @@ void ui_ir_controller_open(void) {}
 void ui_ir_saved_open(void) {}
 void ui_ir_burst_open(void) {}
 
-// UI component stubs
-void toggle_ui_create(void *parent, const char *label, bool *val, void *cb) {
-    (void)parent; (void)label; (void)val; (void)cb;
+// VFS backend stubs (mount host tmpdir)
+static bool s_vfs_mounted = false;
+bool vfs_sdcard_is_mounted(void) { return s_vfs_mounted; }
+esp_err_t vfs_register_sd_backend(void) {
+    std::string dir = "/tmp/hle_sdcard";
+    mkdir(dir.c_str(), 0755);
+    s_vfs_mounted = true;
+    fprintf(stderr, "I [VFS] HLE SD card mounted at %s\n", dir.c_str());
+    return ESP_OK;
 }
-bool toggle_ui_get(void *toggle) { (void)toggle; return false; }
-void toggle_ui_toggle(void *toggle) { (void)toggle; }
-void page_dots_create(void *parent, int count) { (void)parent; (void)count; }
-void page_dots_set(void *dots, int idx) { (void)dots; (void)idx; }
-void page_dots_show(void *dots) { (void)dots; }
-void page_dots_hide(void *dots) { (void)dots; }
+esp_err_t vfs_unregister_sd_backend(void) {
+    s_vfs_mounted = false;
+    return ESP_OK;
+}
 
 // Recursive mutex — stored separately from regular SemaphoreInfo,
 // vSemaphoreDelete in esp_shim.cpp handles cleanup for both types.
@@ -191,9 +181,9 @@ void _hle_vSemaphoreDelete(void *sem) {
 }
 
 // Bluetooth service init
-void bluetooth_service_init(void) {}
-void bluetooth_service_start(void) {}
-void bluetooth_service_stop(void) {}
+esp_err_t bluetooth_service_init(void) { return ESP_OK; }
+esp_err_t bluetooth_service_start(void) { return ESP_OK; }
+esp_err_t bluetooth_service_stop(void) { return ESP_OK; }
 
 // Dispatcher stubs (dispatcher source files excluded — routing tables)
 uint8_t wifi_dispatcher_execute(uint8_t cmd, const uint8_t *p, uint8_t pl, uint8_t *rp, uint8_t *rl) {
@@ -213,34 +203,43 @@ void uxTaskGetSystemState(void *tasks, uint32_t count, uint32_t *run_time) {
     if (run_time) *run_time = 0;
 }
 void bluetooth_service_scan(uint32_t timeout) { (void)timeout; }
-int bluetooth_service_get_scan_count(void) { return 0; }
-void bluetooth_service_get_scan_result(int idx, void *out) { (void)idx; (void)out; }
-void bluetooth_service_connect(const void *addr) { (void)addr; }
+uint16_t bluetooth_service_get_scan_count(void) { return 0; }
+void *bluetooth_service_get_scan_result(uint16_t idx) { (void)idx; return nullptr; }
+esp_err_t bluetooth_service_connect(const uint8_t *addr, uint8_t addr_type, int (*cb)(void *event, void *arg)) {
+    (void)addr; (void)addr_type; (void)cb;
+    return ESP_OK;
+}
 void bluetooth_service_disconnect_all(void) {}
 void bluetooth_service_get_mac(uint8_t *mac) { memset(mac, 0, 6); }
-void ble_scanner_start(void *cb, void *ctx) { (void)cb; (void)ctx; }
+bool ble_scanner_start(void) { return false; }
 void ble_scanner_stop(void) {}
 bool ble_scanner_is_running(void) { return false; }
-void ble_sniffer_start(void *cb, void *ctx) { (void)cb; (void)ctx; }
+esp_err_t ble_sniffer_start(void) { return ESP_OK; }
 void ble_sniffer_stop(void) {}
 void ble_sniffer_bind_session(uint32_t id) { (void)id; }
-void ble_sniffer_session_killed(void) {}
-void ble_connect_flood_start(void *cfg) { (void)cfg; }
-void ble_connect_flood_stop(void) {}
-void skimmer_detector_start(void *cb, void *ctx) { (void)cb; (void)ctx; }
+void ble_sniffer_session_killed(uint32_t op_id) { (void)op_id; }
+esp_err_t ble_connect_flood_start(const uint8_t *addr, uint8_t addr_type) {
+    (void)addr; (void)addr_type;
+    return ESP_OK;
+}
+esp_err_t ble_connect_flood_stop(void) { return ESP_OK; }
+bool skimmer_detector_start(void) { return false; }
 void skimmer_detector_stop(void) {}
-void tracker_detector_start(void *cb, void *ctx) { (void)cb; (void)ctx; }
+bool tracker_detector_start(void) { return false; }
 void tracker_detector_stop(void) {}
-void meshtastic_transport_init(void) {}
-void meshtastic_gatt_init(void *cb) { (void)cb; }
+esp_err_t meshtastic_transport_init(void) { return ESP_OK; }
+esp_err_t meshtastic_gatt_init(uint32_t node_num) { (void)node_num; return ESP_OK; }
 void meshtastic_gatt_stop(void) {}
-void meshtastic_transport_inject_fromradio_chunk(const uint8_t *d, size_t l) { (void)d; (void)l; }
-void meshtastic_transport_inject_log_chunk(const uint8_t *d, size_t l) { (void)d; (void)l; }
+void meshtastic_transport_inject_fromradio_chunk(const uint8_t *d, uint8_t l) { (void)d; (void)l; }
+void meshtastic_transport_inject_log_chunk(const uint8_t *d, uint8_t l) { (void)d; (void)l; }
 void meshtastic_transport_get_status(void *s) { (void)s; }
-void meshcore_transport_init(void) {}
-void meshcore_gatt_init(void *cb) { (void)cb; }
+esp_err_t meshcore_transport_init(void) { return ESP_OK; }
+esp_err_t meshcore_gatt_init(const char *name_prefix, uint32_t pin) {
+    (void)name_prefix; (void)pin;
+    return ESP_OK;
+}
 void meshcore_gatt_stop(void) {}
-void meshcore_transport_inject_tx_chunk(const uint8_t *d, size_t l) { (void)d; (void)l; }
+void meshcore_transport_inject_tx_chunk(const uint8_t *d, uint8_t l) { (void)d; (void)l; }
 
 // ESP-IDF stubs
 UBaseType_t uxTaskGetNumberOfTasks(void) { return 1; }

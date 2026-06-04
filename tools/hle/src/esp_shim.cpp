@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <queue>
+#include <dirent.h>
 #include <chrono>
 #include <thread>
 
@@ -27,6 +28,7 @@
 #include "freertos/queue.h"
 #include "hle/spi_bridge_channel.h"
 #include "hle/hle_display.h"
+#include "hle/hle_kernel.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_vfs_fat.h"
 #include "esp_littlefs.h"
@@ -519,7 +521,26 @@ int esp_wifi_get_channel(uint8_t *primary, int *secondary) { if (primary) *prima
 static std::mutex s_gpio_mutex;
 static std::map<gpio_num_t, bool> s_gpio_levels;
 
-esp_err_t gpio_config(const gpio_config_t *cfg) { (void)cfg; return ESP_OK; }
+static constexpr gpio_num_t HLE_GPIO_BTN_LEFT_PIN = 5;
+static constexpr gpio_num_t HLE_GPIO_BTN_BACK_PIN = 7;
+static constexpr gpio_num_t HLE_GPIO_BTN_UP_PIN = 15;
+static constexpr gpio_num_t HLE_GPIO_BTN_DOWN_PIN = 6;
+static constexpr gpio_num_t HLE_GPIO_BTN_OK_PIN = 4;
+static constexpr gpio_num_t HLE_GPIO_BTN_RIGHT_PIN = 16;
+
+esp_err_t gpio_config(const gpio_config_t *cfg) {
+    if (!cfg) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> lock(s_gpio_mutex);
+    for (gpio_num_t pin = 0; pin < 64; ++pin) {
+        if ((cfg->pin_bit_mask & (1ULL << pin)) == 0) continue;
+        if ((cfg->mode == GPIO_MODE_INPUT || cfg->mode == GPIO_MODE_INPUT_OUTPUT) && cfg->pull_up_en) {
+            s_gpio_levels[pin] = true;
+        } else if ((cfg->mode == GPIO_MODE_INPUT || cfg->mode == GPIO_MODE_INPUT_OUTPUT) && cfg->pull_down_en) {
+            s_gpio_levels[pin] = false;
+        }
+    }
+    return ESP_OK;
+}
 esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level) {
     std::lock_guard<std::mutex> lock(s_gpio_mutex);
     s_gpio_levels[pin] = (level != 0);
@@ -535,6 +556,17 @@ esp_err_t gpio_isr_handler_add(gpio_num_t pin, void (*handler)(void *), void *ar
     (void)pin; (void)handler; (void)arg; return ESP_OK;
 }
 void gpio_reset_pin(gpio_num_t pin) { (void)pin; }
+
+extern "C" void hle_set_button_mask(unsigned char mask) {
+    std::lock_guard<std::mutex> lock(s_gpio_mutex);
+
+    s_gpio_levels[HLE_GPIO_BTN_UP_PIN] = (mask & (1u << 0)) == 0;
+    s_gpio_levels[HLE_GPIO_BTN_DOWN_PIN] = (mask & (1u << 1)) == 0;
+    s_gpio_levels[HLE_GPIO_BTN_LEFT_PIN] = (mask & (1u << 2)) == 0;
+    s_gpio_levels[HLE_GPIO_BTN_RIGHT_PIN] = (mask & (1u << 3)) == 0;
+    s_gpio_levels[HLE_GPIO_BTN_OK_PIN] = (mask & (1u << 4)) == 0;
+    s_gpio_levels[HLE_GPIO_BTN_BACK_PIN] = (mask & (1u << 5)) == 0;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // I2C Stubs
@@ -741,6 +773,75 @@ esp_err_t esp_lcd_panel_io_register_event_callbacks(esp_lcd_panel_io_handle_t io
 static std::string s_base_path = "/tmp/hle_storage";
 
 void hle_set_storage_path(const char *path) { s_base_path = path; }
+
+static std::string hle_translate_path(const char *path) {
+    if (!path || path[0] == '\0') return {};
+
+    const std::string src(path);
+    if (src.rfind("/sdcard", 0) == 0) {
+        return s_base_path + src;
+    }
+
+    if (src.rfind("/assets", 0) == 0) {
+#ifdef HLE_ASSETS_DIR
+        return std::string(HLE_ASSETS_DIR) + src.substr(sizeof("/assets") - 1);
+#else
+        return s_base_path + src;
+#endif
+    }
+
+    return src;
+}
+
+extern "C" FILE *__real_fopen(const char *path, const char *mode);
+extern "C" int __real_stat(const char *path, struct stat *st);
+extern "C" DIR *__real_opendir(const char *path);
+extern "C" int __real_mkdir(const char *path, mode_t mode);
+extern "C" int __real_access(const char *path, int mode);
+extern "C" int __real_remove(const char *path);
+extern "C" int __real_rename(const char *old_path, const char *new_path);
+extern "C" int __real_unlink(const char *path);
+
+extern "C" FILE *__wrap_fopen(const char *path, const char *mode) {
+    const std::string translated = hle_translate_path(path);
+    return __real_fopen(translated.c_str(), mode);
+}
+
+extern "C" int __wrap_stat(const char *path, struct stat *st) {
+    const std::string translated = hle_translate_path(path);
+    return __real_stat(translated.c_str(), st);
+}
+
+extern "C" DIR *__wrap_opendir(const char *path) {
+    const std::string translated = hle_translate_path(path);
+    return __real_opendir(translated.c_str());
+}
+
+extern "C" int __wrap_mkdir(const char *path, mode_t mode) {
+    const std::string translated = hle_translate_path(path);
+    return __real_mkdir(translated.c_str(), mode);
+}
+
+extern "C" int __wrap_access(const char *path, int mode) {
+    const std::string translated = hle_translate_path(path);
+    return __real_access(translated.c_str(), mode);
+}
+
+extern "C" int __wrap_remove(const char *path) {
+    const std::string translated = hle_translate_path(path);
+    return __real_remove(translated.c_str());
+}
+
+extern "C" int __wrap_rename(const char *old_path, const char *new_path) {
+    const std::string translated_old = hle_translate_path(old_path);
+    const std::string translated_new = hle_translate_path(new_path);
+    return __real_rename(translated_old.c_str(), translated_new.c_str());
+}
+
+extern "C" int __wrap_unlink(const char *path) {
+    const std::string translated = hle_translate_path(path);
+    return __real_unlink(translated.c_str());
+}
 
 extern "C" {
 

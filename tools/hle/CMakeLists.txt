@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(FIRMWARE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(HLE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(HLE_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(HLE_ASSETS_DIR "${FIRMWARE_ROOT}/firmware_p4/temp")
 
 # ── Collect firmware component include dirs ───────────────────────────────────
 function(collect_firmware_includes TARGET_DIR OUTPUT_VAR)
@@ -49,6 +50,18 @@ collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications
 # ── Dependencies ─────────────────────────────────────────────────────────────
 include(FetchContent)
 
+file(GLOB_RECURSE HLE_ASSET_SOURCES "${FIRMWARE_ROOT}/firmware_p4/assets/*")
+set(HLE_ASSETS_STAMP "${HLE_ASSETS_DIR}/.hle_assets_stamp")
+add_custom_command(
+    OUTPUT ${HLE_ASSETS_STAMP}
+    COMMAND bash "${FIRMWARE_ROOT}/tools/png_to_bin/png_conversor_to_bin.sh"
+    COMMAND ${CMAKE_COMMAND} -E touch ${HLE_ASSETS_STAMP}
+    WORKING_DIRECTORY "${FIRMWARE_ROOT}/firmware_p4"
+    DEPENDS ${HLE_ASSET_SOURCES} "${FIRMWARE_ROOT}/tools/png_to_bin/png_conversor_to_bin.sh"
+    COMMENT "Generating HLE LVGL assets"
+)
+add_custom_target(hle_assets DEPENDS ${HLE_ASSETS_STAMP})
+
 # cJSON
 FetchContent_Declare(cjson GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git GIT_TAG v1.7.18)
 FetchContent_MakeAvailable(cjson)
@@ -80,6 +93,7 @@ list(FILTER HLE_SRC EXCLUDE REGEX ".*hle_kernel.*\\.cpp$") # kernel needs LVGL +
 add_library(hle_shims STATIC ${HLE_SRC})
 target_include_directories(hle_shims PUBLIC ${HLE_INCLUDE_DIR})
 target_compile_options(hle_shims PRIVATE -Wno-pmf-conversions)
+target_compile_definitions(hle_shims PRIVATE HLE_ASSETS_DIR="${HLE_ASSETS_DIR}")
 
 add_library(firmware_c5 STATIC
     ${C5_CORE_SRC} ${C5_MAIN_SRC} ${C5_DRV} ${C5_DRV_DEEP} ${C5_SVC} ${C5_SVC_DEEP}
@@ -166,6 +180,17 @@ if(SDL2_FOUND)
         -DLV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h"
         -DLV_LVGL_H_INCLUDE_SIMPLE
     )
+    target_link_options(hle_interactive PRIVATE
+        -Wl,--wrap=fopen
+        -Wl,--wrap=stat
+        -Wl,--wrap=opendir
+        -Wl,--wrap=mkdir
+        -Wl,--wrap=access
+        -Wl,--wrap=remove
+        -Wl,--wrap=rename
+        -Wl,--wrap=unlink
+    )
     target_link_libraries(hle_interactive PRIVATE hle_shims firmware_p4 firmware_c5 lvgl SDL2::SDL2 pthread cjson)
+    add_dependencies(hle_interactive hle_assets)
     message(STATUS "SDL2 found — hle_interactive enabled")
 endif()

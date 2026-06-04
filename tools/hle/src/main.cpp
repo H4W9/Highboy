@@ -1,6 +1,5 @@
 #include <cstdio>
 #include <cstdlib>
-#include <ctime>
 #include <thread>
 #include <chrono>
 
@@ -17,7 +16,9 @@ extern "C" {
 static const char *TAG = "MAIN";
 
 static uint32_t lv_get_tick(void) {
-    return (uint32_t)(clock() * 1000 / CLOCKS_PER_SEC);
+    static const auto s_start = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    return (uint32_t)std::chrono::duration_cast<std::chrono::milliseconds>(now - s_start).count();
 }
 
 int main(int argc, char **argv) {
@@ -45,6 +46,7 @@ int main(int argc, char **argv) {
     while (!quit) {
         uint8_t keys_pressed, keys_held;
         renderer.handle_events(keys_pressed, keys_held, quit);
+        hle_set_button_mask(keys_held);
         renderer.render();
         std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 fps
     }

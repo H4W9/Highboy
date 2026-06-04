@@ -69,12 +69,12 @@ public:
         // Track held keys
         const uint8_t *state = SDL_GetKeyboardState(nullptr);
         m_held_keys = 0;
-        if (state[SDL_SCANCODE_UP] || state[SDL_SCANCODE_W])       m_held_keys |= KEY_UP;
-        if (state[SDL_SCANCODE_DOWN] || state[SDL_SCANCODE_S])     m_held_keys |= KEY_DOWN;
-        if (state[SDL_SCANCODE_LEFT] || state[SDL_SCANCODE_A])     m_held_keys |= KEY_LEFT;
-        if (state[SDL_SCANCODE_RIGHT] || state[SDL_SCANCODE_D])    m_held_keys |= KEY_RIGHT;
-        if (state[SDL_SCANCODE_RETURN] || state[SDL_SCANCODE_SPACE]) m_held_keys |= KEY_OK;
-        if (state[SDL_SCANCODE_BACKSPACE] || state[SDL_SCANCODE_ESCAPE]) m_held_keys |= KEY_BACK;
+        if (state[SDL_SCANCODE_UP]) m_held_keys |= KEY_UP;
+        if (state[SDL_SCANCODE_DOWN]) m_held_keys |= KEY_DOWN;
+        if (state[SDL_SCANCODE_LEFT]) m_held_keys |= KEY_LEFT;
+        if (state[SDL_SCANCODE_RIGHT]) m_held_keys |= KEY_RIGHT;
+        if (state[SDL_SCANCODE_RETURN]) m_held_keys |= KEY_OK;
+        if (state[SDL_SCANCODE_BACKSPACE]) m_held_keys |= KEY_BACK;
         keys_held = m_held_keys;
         return true;
     }
@@ -86,7 +86,12 @@ public:
         void *pixels;
         int pitch;
         SDL_LockTexture(m_texture, nullptr, &pixels, &pitch);
-        memcpy(pixels, disp.pixels(), LCD_H_RES * LCD_V_RES * sizeof(uint16_t));
+        const auto *src = reinterpret_cast<const uint8_t *>(disp.pixels());
+        auto *dst = reinterpret_cast<uint8_t *>(pixels);
+        const size_t row_bytes = LCD_H_RES * sizeof(uint16_t);
+        for (int y = 0; y < LCD_V_RES; ++y) {
+            memcpy(dst + (y * pitch), src + (y * row_bytes), row_bytes);
+        }
         SDL_UnlockTexture(m_texture);
 
         SDL_RenderClear(m_renderer);
@@ -117,12 +122,12 @@ public:
 private:
     static uint8_t sdl_key_to_hle(SDL_Keycode sym) {
         switch (sym) {
-        case SDLK_UP: case SDLK_w: return KEY_UP;
-        case SDLK_DOWN: case SDLK_s: return KEY_DOWN;
-        case SDLK_LEFT: case SDLK_a: return KEY_LEFT;
-        case SDLK_RIGHT: case SDLK_d: return KEY_RIGHT;
-        case SDLK_RETURN: case SDLK_SPACE: return KEY_OK;
-        case SDLK_BACKSPACE: case SDLK_ESCAPE: return KEY_BACK;
+        case SDLK_UP: return KEY_UP;
+        case SDLK_DOWN: return KEY_DOWN;
+        case SDLK_LEFT: return KEY_LEFT;
+        case SDLK_RIGHT: return KEY_RIGHT;
+        case SDLK_RETURN: return KEY_OK;
+        case SDLK_BACKSPACE: return KEY_BACK;
         default: return 0;
         }
     }
