@@ -31,11 +31,13 @@ static void disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
 
 extern "C" {
 
-void hle_lv_port_disp_init(void) {
+void lv_port_disp_init(void);
+void hle_lv_port_disp_init(void);
+
+void lv_port_disp_init(void) {
     s_disp = lv_display_create(LCD_H_RES, LCD_V_RES);
     lv_display_set_flush_cb(s_disp, disp_flush_cb);
 
-    // Allocate draw buffers — 1/2 screen each
     size_t buf_size = LCD_H_RES * LCD_V_RES / 2 * sizeof(lv_color_t);
     auto *buf1 = static_cast<lv_color_t *>(malloc(buf_size));
     auto *buf2 = static_cast<lv_color_t *>(malloc(buf_size));
@@ -43,5 +45,7 @@ void hle_lv_port_disp_init(void) {
 
     ESP_LOGI(TAG, "HLE display initialized (%dx%d)", LCD_H_RES, LCD_V_RES);
 }
+
+void hle_lv_port_disp_init(void) { lv_port_disp_init(); }
 
 } // extern "C"

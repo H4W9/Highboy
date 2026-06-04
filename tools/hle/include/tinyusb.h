@@ -4,8 +4,9 @@
 extern "C" {
 #endif
 
-#define SPI_DEVICE_HALFDUPLEX 1
-#define SPI3_HOST 3
+#define TUSB_DESC_TOTAL_LEN 256
+
+typedef int tusb_desc_device_t;
 
 #ifdef __cplusplus
 }

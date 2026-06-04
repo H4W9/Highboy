@@ -30,36 +30,20 @@ endfunction()
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Core/*.c" C5_CORE_SRC)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "main/*.c" C5_MAIN_SRC)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Drivers/*.c" C5_DRV)
-message(STATUS "C5 driver files: ${C5_DRV}")
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/spi_bridge.c" C5_SVC_BRIDGE)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/session_manager.c" C5_SVC_SESSION)
-# wifi_dispatcher.c and bt_dispatcher.c excluded — they reference 60+ app functions
-# that need deep BLE/WiFi stack integration. These are routing tables, not business logic.
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/*.c" C5_SVC)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Drivers/*/*.c" C5_DRV_DEEP)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/*/*.c" C5_SVC_DEEP)
 
 # ── P4 firmware sources ──────────────────────────────────────────────────────
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Core/*.c" P4_CORE_SRC)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "main/*.c" P4_MAIN_SRC)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/spi/spi.c" P4_DRV_SPI)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/i2c_init/*.c" P4_DRV_I2C)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/bq25896/*.c" P4_DRV_BQ)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/led/led_control.c" P4_DRV_LED)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/buttons_gpio/*.c" P4_DRV_BTN)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_vfs/vfs_core.c" P4_VFS_CORE)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_vfs/vfs_auto.c" P4_VFS_AUTO)
-# UI subsystem — REAL firmware code
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/ui_manager.c" P4_UI_MGR)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/ui_theme.c" P4_UI_THEME)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/screens/boot/boot_ui.c" P4_UI_BOOT)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/screens/home/home_ui.c" P4_UI_HOME)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/components/header/header_ui.c" P4_UI_HEADER)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/components/dropdown/dropdown_ui.c" P4_UI_DROPDOWN)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/components/message_box/msgbox_ui.c" P4_UI_MSGBOX)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/assets_manager.c" P4_UI_ASSETS)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_assets/storage_assets.c" P4_STORAGE_ASSETS)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_api/storage_init.c" P4_STORAGE_INIT)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_api/tos_first_boot.c" P4_TOS_FIRST_BOOT)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_api/tos_config.c" P4_TOS_CONFIG)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_api/tos_theme.c" P4_TOS_THEME)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/*.c" P4_DRV)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/*/*.c" P4_DRV_DEEP)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/*.c" P4_SVC)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/*/*.c" P4_SVC_DEEP)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/*.c" P4_APP)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/*/*.c" P4_APP_DEEP)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/*/*/*.c" P4_APP_DEEP2)
 # tos_log.c excluded — it hooks esp_log vprintf which is ESP-IDF-specific
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
@@ -96,23 +80,64 @@ target_include_directories(hle_shims PUBLIC ${HLE_INCLUDE_DIR})
 target_compile_options(hle_shims PRIVATE -Wno-pmf-conversions)
 
 add_library(firmware_c5 STATIC
-    ${C5_CORE_SRC} ${C5_MAIN_SRC} ${C5_DRV}
-    ${C5_SVC_BRIDGE} ${C5_SVC_SESSION}
+    ${C5_CORE_SRC} ${C5_MAIN_SRC} ${C5_DRV} ${C5_DRV_DEEP} ${C5_SVC} ${C5_SVC_DEEP}
 )
-target_include_directories(firmware_c5 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${C5_INCLUDES})
+
+# Bluetooth/WiFi services need full NimBLE/lwIP host stacks (not shimmable)
+# Exclude their .c files but stub their public functions
+get_target_property(_c5_srcs firmware_c5 SOURCES)
+list(FILTER _c5_srcs EXCLUDE REGEX ".*bluetooth_service\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*wifi_service\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/console/.*\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/dns_server/.*\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/esp_now/.*\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/http_server/.*\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/meshtastic/.*\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/meshcore/.*\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/sd_card/.*\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/storage_vfs/vfs_sdcard\\.c$")
+set_target_properties(firmware_c5 PROPERTIES SOURCES "${_c5_srcs}")
+target_include_directories(firmware_c5 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${C5_INCLUDES} ${cjson_SOURCE_DIR})
 target_compile_options(firmware_c5 PRIVATE -Wno-implicit-function-declaration)
 
 add_library(firmware_p4 STATIC
     ${P4_CORE_SRC} ${P4_MAIN_SRC}
-    ${P4_DRV_SPI} ${P4_DRV_I2C} ${P4_DRV_BQ} ${P4_DRV_LED} ${P4_DRV_BTN}
-    ${P4_VFS_CORE} ${P4_VFS_AUTO}
-    ${P4_STORAGE_ASSETS} ${P4_STORAGE_INIT} ${P4_TOS_FIRST_BOOT} ${P4_TOS_CONFIG} ${P4_TOS_THEME}
-    ${P4_UI_MGR} ${P4_UI_THEME} ${P4_UI_BOOT} ${P4_UI_HOME} ${P4_UI_HEADER} ${P4_UI_DROPDOWN} ${P4_UI_MSGBOX} ${P4_UI_ASSETS}
+    ${P4_DRV} ${P4_DRV_DEEP} ${P4_SVC} ${P4_SVC_DEEP}
+    ${P4_APP} ${P4_APP_DEEP} ${P4_APP_DEEP2}
 )
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${P4_INCLUDES})
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${lvgl_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${cjson_SOURCE_DIR})
 target_compile_options(firmware_p4 PRIVATE -Wno-implicit-function-declaration)
+
+# P4: exclude hardware drivers that need chip-specific configurations
+get_target_property(_p4_srcs firmware_p4 SOURCES)
+list(FILTER _p4_srcs EXCLUDE REGEX ".*spi_bridge_phy.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*c5_flasher.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*st25r3916.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*sx1262.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*ir/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*rfid/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*bad_usb.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*nfc/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*SubGhz/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*LoRa/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*bluetooth/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*wifi/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*tusb.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*ys_rfid2.*hal.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_sdcard.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_spiffs.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_littlefs.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_ramfs.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*console/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*ota/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*sd_card/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*tos_log\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*lv_port_disp\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*lv_port_indev\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*lv_port_touch\\.c$")
+set_target_properties(firmware_p4 PROPERTIES SOURCES "${_p4_srcs}")
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 enable_testing()
@@ -139,6 +164,6 @@ if(SDL2_FOUND)
         -DLV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h"
         -DLV_LVGL_H_INCLUDE_SIMPLE
     )
-    target_link_libraries(hle_interactive PRIVATE hle_shims firmware_c5 firmware_p4 lvgl SDL2::SDL2 pthread cjson)
+    target_link_libraries(hle_interactive PRIVATE hle_shims firmware_p4 firmware_c5 lvgl SDL2::SDL2 pthread cjson)
     message(STATUS "SDL2 found — hle_interactive enabled")
 endif()

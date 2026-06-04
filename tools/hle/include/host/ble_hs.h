@@ -5,7 +5,6 @@ extern "C" {
 #endif
 
 typedef int ble_hs_conn_handle;
-typedef int ble_hs_adv_fields;
 typedef int ble_gatt_svc;
 typedef int ble_gatt_chr;
 typedef int ble_gatt_dsc;

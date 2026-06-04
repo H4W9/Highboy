@@ -21,7 +21,7 @@ extern "C" {
 lv_indev_t *indev_keypad = nullptr;
 lv_group_t *main_group = nullptr;
 
-void hle_lv_port_indev_init(void) {
+void lv_port_indev_init(void) {
     indev_keypad = lv_indev_create();
     lv_indev_set_type(indev_keypad, LV_INDEV_TYPE_KEYPAD);
 
@@ -31,5 +31,7 @@ void hle_lv_port_indev_init(void) {
 
     ESP_LOGI(TAG, "HLE input device initialized");
 }
+
+void hle_lv_port_indev_init(void) { lv_port_indev_init(); }
 
 } // extern "C"

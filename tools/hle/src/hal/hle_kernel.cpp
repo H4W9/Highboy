@@ -6,6 +6,9 @@
 #include <sys/types.h>
 #include <cstdio>
 #include <cstring>
+#include <pthread.h>
+#include <unordered_set>
+#include <mutex>
 
 #include "hle/spi_bridge_channel.h"
 
@@ -42,48 +45,155 @@ void led_rgb_init(void) {}
 void tos_log_init(void) {}
 void tos_first_boot_setup(void) {}
 
-// C5 firmware stubs (functions called by C5 dispatchers/bridge)
+// ── Stubs for excluded hardware-specific implementation files ───────────────
+// (bluetooth_service.c, wifi_service.c, console/cmds, etc. are excluded
+//  because they need full NimBLE/lwIP host stacks)
+
 bool wifi_service_is_active(void) { return false; }
 bool wifi_service_is_connected(void) { return false; }
-bool bluetooth_service_is_running(void) { return false; }
-bool bluetooth_service_is_initialized(void) { return false; }
+void wifi_service_set_enabled(bool en) { (void)en; }
 
-// WiFi sniffer stubs
-int wifi_sniffer_get_packet_count(void) { return 0; }
-int wifi_sniffer_get_deauth_count(void) { return 0; }
-int wifi_sniffer_get_buffer_usage(void) { return 0; }
-bool wifi_sniffer_handshake_captured(void) { return false; }
-bool wifi_sniffer_pmkid_captured(void) { return false; }
-void wifi_sniffer_session_killed(void) {}
-void wifi_sniffer_bind_session(uint32_t id) { (void)id; }
-void wifi_deauther_stop(void) {}
-void wifi_flood_stop(void) {}
-void evil_twin_stop_attack(void) {}
-void beacon_spam_stop(void) {}
-void deauther_detector_stop(void) {}
-void deauther_detector_start(void) {}
-int deauther_detector_get_count(void) { return 0; }
-void probe_monitor_stop(void) {}
-void signal_monitor_stop(void) {}
-int signal_monitor_get_rssi(void) { return 0; }
-void target_scanner_start(void) {}
-void target_scanner_stop(void) {}
-bool target_scanner_is_scanning(void) { return false; }
-void evil_twin_start_attack(void *cfg) { (void)cfg; }
+void ledc_timer_config(const void *cfg) { (void)cfg; }
+void ledc_channel_config(const void *cfg) { (void)cfg; }
+void ledc_set_duty(int mode, int chan, int timer, int duty) { (void)mode; (void)chan; (void)timer; (void)duty; }
+void ledc_update_duty(int mode, int chan, int timer, int duty) { (void)mode; (void)chan; (void)timer; (void)duty; }
 
-// VFS backend stubs — mount host tmpdir as SD card
+void bad_usb_init(void) {}
+void bad_usb_deinit(void) {}
+void bad_usb_wait_for_connection(void) {}
+void ducky_set_layout(const void *layout) { (void)layout; }
+void ducky_set_progress_callback(void *cb, void *ctx) { (void)cb; (void)ctx; }
+void ducky_abort(void) {}
+void ducky_run_from_assets(const char *path) { (void)path; }
+
+void ui_connect_bt_open(void) {}
+void ui_connect_wifi_open(void) {}
+void ui_ble_menu_open(void) {}
+void ui_ble_spam_open(void) {}
+void ui_ble_spam_select_open(void) {}
+void ui_nfc_menu_open(void) {}
+void ui_subghz_spectrum_open(void) {}
+void ui_wifi_ap_list_open(void) {}
+void ui_wifi_attack_menu_open(void) {}
+void ui_wifi_auth_flood_open(void) {}
+void ui_wifi_beacon_spam_open(void) {}
+void ui_wifi_beacon_spam_simple_open(void) {}
+void ui_wifi_deauth_attack_open(void) {}
+void ui_wifi_deauth_open(void) {}
+void ui_wifi_evil_twin_open(void) {}
+void ui_wifi_menu_open(void) {}
+void ui_wifi_packets_menu_open(void) {}
+void ui_wifi_probe_flood_open(void) {}
+void ui_wifi_probe_open(void) {}
+void ui_wifi_scan_ap_open(void) {}
+void ui_wifi_scan_menu_open(void) {}
+void ui_wifi_scan_monitor_open(void) {}
+void ui_wifi_scan_open(void) {}
+void ui_wifi_scan_probe_open(void) {}
+void ui_wifi_scan_stations_open(void) {}
+void ui_wifi_scan_target_open(void) {}
+void ui_wifi_sniffer_attack_open(void) {}
+void ui_wifi_sniffer_handshake_open(void) {}
+void ui_wifi_sniffer_raw_open(void) {}
+void ui_badusb_menu_open(void) {}
+void ui_badusb_browser_open(void) {}
+void ui_badusb_layout_open(void) {}
+void ui_badusb_connect_open(void) {}
+void ui_badusb_running_open(void) {}
+void ui_files_open(void) {}
+void ui_menu_open(void) {}
+void ui_settings_open(void) {}
+void ui_display_settings_open(void) {}
+void ui_interface_settings_open(void) {}
+void ui_sound_settings_open(void) {}
+void ui_battery_settings_open(void) {}
+void ui_connection_settings_open(void) {}
+void ui_about_settings_open(void) {}
+
+// VFS backend stubs (mount host tmpdir)
 static bool s_vfs_mounted = false;
-
 bool vfs_sdcard_is_mounted(void) { return s_vfs_mounted; }
-
 void vfs_register_sd_backend(void) {
     std::string dir = "/tmp/hle_sdcard";
     mkdir(dir.c_str(), 0755);
     s_vfs_mounted = true;
     fprintf(stderr, "I [VFS] HLE SD card mounted at %s\n", dir.c_str());
 }
-
 void vfs_unregister_sd_backend(void) { s_vfs_mounted = false; }
+
+void ui_theme_selector_open(void) {}
+void ui_ir_menu_open(void) {}
+void ui_ir_receive_open(void) {}
+void ui_ir_send_open(void) {}
+void ui_ir_controller_open(void) {}
+void ui_ir_saved_open(void) {}
+void ui_ir_burst_open(void) {}
+
+// UI component stubs
+void toggle_ui_create(void *parent, const char *label, bool *val, void *cb) {
+    (void)parent; (void)label; (void)val; (void)cb;
+}
+bool toggle_ui_get(void *toggle) { (void)toggle; return false; }
+void toggle_ui_toggle(void *toggle) { (void)toggle; }
+void page_dots_create(void *parent, int count) { (void)parent; (void)count; }
+void page_dots_set(void *dots, int idx) { (void)dots; (void)idx; }
+void page_dots_show(void *dots) { (void)dots; }
+void page_dots_hide(void *dots) { (void)dots; }
+
+// Recursive mutex — stored separately from regular SemaphoreInfo,
+// vSemaphoreDelete in esp_shim.cpp handles cleanup for both types.
+extern "C" void _hle_vSemaphoreDelete(void *sem);
+static std::mutex s_rmutex_set_mtx;
+static std::unordered_set<pthread_mutex_t *> s_rmutex_set;
+
+static pthread_mutex_t *hle_rmutex_create(void) {
+    auto *m = new pthread_mutex_t;
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(m, &attr);
+    pthread_mutexattr_destroy(&attr);
+    {
+        std::lock_guard<std::mutex> lock(s_rmutex_set_mtx);
+        s_rmutex_set.insert(m);
+    }
+    return m;
+}
+static bool hle_rmutex_lock(pthread_mutex_t *m) { return pthread_mutex_lock(m) == 0; }
+static bool hle_rmutex_unlock(pthread_mutex_t *m) { return pthread_mutex_unlock(m) == 0; }
+
+SemaphoreHandle_t xSemaphoreCreateRecursiveMutex(void) {
+    return (SemaphoreHandle_t)hle_rmutex_create();
+}
+BaseType_t xSemaphoreTakeRecursive(SemaphoreHandle_t m, TickType_t timeout) {
+    (void)timeout;
+    return hle_rmutex_lock((pthread_mutex_t *)m) ? pdTRUE : pdFALSE;
+}
+BaseType_t xSemaphoreGiveRecursive(SemaphoreHandle_t m) {
+    return hle_rmutex_unlock((pthread_mutex_t *)m) ? pdTRUE : pdFALSE;
+}
+
+// Override vSemaphoreDelete to handle recursive mutexes as well
+extern "C" void _hle_vSemaphoreDelete(void *sem);
+void _hle_vSemaphoreDelete(void *sem) {
+    if (!sem) return;
+    {
+        std::lock_guard<std::mutex> lock(s_rmutex_set_mtx);
+        auto it = s_rmutex_set.find((pthread_mutex_t *)sem);
+        if (it != s_rmutex_set.end()) {
+            pthread_mutex_destroy(*it);
+            delete *it;
+            s_rmutex_set.erase(it);
+            return;
+        }
+    }
+    vSemaphoreDelete(sem);
+}
+
+// Bluetooth service init
+void bluetooth_service_init(void) {}
+void bluetooth_service_start(void) {}
+void bluetooth_service_stop(void) {}
 
 // Dispatcher stubs (dispatcher source files excluded — routing tables)
 uint8_t wifi_dispatcher_execute(uint8_t cmd, const uint8_t *p, uint8_t pl, uint8_t *rp, uint8_t *rl) {

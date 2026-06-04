@@ -72,6 +72,8 @@ typedef struct {
 #define WIFI_PROMISC_FILTER_MASK_ALL 0xFFFFFFFF
 #define WIFI_PROMIS_FILTER_MASK_ALL  0xFFFFFFFF
 
+typedef struct { int dummy; } wifi_tx_info_t;
+
 #ifdef __cplusplus
 }
 #endif

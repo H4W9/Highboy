@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include "driver/gpio.h"
 #include "soc/spi_periph.h"
+#include "esp_heap_caps.h"
 
 #ifdef __cplusplus
 extern "C" {
