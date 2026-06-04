@@ -102,7 +102,19 @@ gtest_discover_tests(hle_tests)
 
 # ── Interactive ──────────────────────────────────────────────────────────────
 if(SDL2_FOUND)
-    add_executable(hle_interactive EXCLUDE_FROM_ALL ${HLE_SRC_DIR}/main.cpp)
+    file(GLOB_RECURSE INTERACTIVE_SRC
+        "${HLE_SRC_DIR}/main.cpp"
+        "${HLE_SRC_DIR}/hal/lv_port_disp_hle.cpp"
+        "${HLE_SRC_DIR}/hal/lv_port_indev_hle.cpp"
+    )
+    add_executable(hle_interactive EXCLUDE_FROM_ALL ${INTERACTIVE_SRC})
+    target_include_directories(hle_interactive PRIVATE ${HLE_INCLUDE_DIR})
+    target_include_directories(hle_interactive SYSTEM PRIVATE ${lvgl_SOURCE_DIR})
+    target_compile_definitions(hle_interactive PRIVATE
+        -DLV_CONF_INCLUDE_SIMPLE
+        -DLV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h"
+        -DLV_LVGL_H_INCLUDE_SIMPLE
+    )
     target_link_libraries(hle_interactive PRIVATE hle_shims lvgl SDL2::SDL2 pthread)
     message(STATUS "SDL2 found — hle_interactive enabled")
 endif()
