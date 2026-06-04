@@ -10,6 +10,7 @@ extern "C" {
 #define configUSE_PREEMPTION     1
 #define configUSE_TIME_SLICING   1
 #define portSHORT short
+#define tskIDLE_PRIORITY 0
 
 #ifdef __cplusplus
 }

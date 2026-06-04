@@ -48,6 +48,17 @@ uint64_t esp_timer_get_time(void) {
     return std::chrono::duration_cast<std::chrono::microseconds>(now).count();
 }
 
+esp_err_t esp_timer_create(const esp_timer_create_args_t *args, esp_timer_handle_t *handle) {
+    (void)args;
+    if (handle) *handle = (void *)0x1;
+    return ESP_OK;
+}
+esp_err_t esp_timer_start_periodic(esp_timer_handle_t handle, uint64_t period_us) {
+    (void)handle; (void)period_us; return ESP_OK;
+}
+esp_err_t esp_timer_stop(esp_timer_handle_t handle) { (void)handle; return ESP_OK; }
+esp_err_t esp_timer_delete(esp_timer_handle_t handle) { (void)handle; return ESP_OK; }
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // FreeRTOS Implementation (pthread-based)
 // ═══════════════════════════════════════════════════════════════════════════════

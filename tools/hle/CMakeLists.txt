@@ -46,9 +46,18 @@ collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/led/
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/i2c_init/*.c" P4_DRV_I2C)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_vfs/vfs_core.c" P4_VFS_CORE)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_vfs/vfs_auto.c" P4_VFS_AUTO)
+# UI subsystem
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/ui_manager.c" P4_UI_MGR)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/ui_theme.c" P4_UI_THEME)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/screens/boot/boot_ui.c" P4_UI_BOOT)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/screens/home/home_ui.c" P4_UI_HOME)
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 include(FetchContent)
+
+# cJSON
+FetchContent_Declare(cjson GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git GIT_TAG v1.7.18)
+FetchContent_MakeAvailable(cjson)
 
 FetchContent_Declare(googletest GIT_REPOSITORY https://github.com/google/googletest.git GIT_TAG v1.14.0)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
@@ -87,9 +96,11 @@ add_library(firmware_p4 STATIC
     ${P4_CORE_SRC} ${P4_MAIN_SRC}
     ${P4_DRV_SPI} ${P4_DRV_BTN} ${P4_DRV_BQ} ${P4_DRV_LED} ${P4_DRV_I2C}
     ${P4_VFS_CORE} ${P4_VFS_AUTO}
+    ${P4_UI_MGR} ${P4_UI_THEME} ${P4_UI_BOOT} ${P4_UI_HOME}
 )
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${P4_INCLUDES})
-target_include_directories(firmware_p4 SYSTEM PRIVATE ${lvgl_SOURCE_DIR})
+target_include_directories(firmware_p4 SYSTEM PRIVATE ${lvgl_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
+target_include_directories(firmware_p4 SYSTEM PRIVATE ${cjson_SOURCE_DIR})
 target_compile_options(firmware_p4 PRIVATE -Wno-implicit-function-declaration)
 
 # ── Tests ────────────────────────────────────────────────────────────────────
@@ -111,7 +122,7 @@ if(SDL2_FOUND)
     )
     add_executable(hle_interactive EXCLUDE_FROM_ALL ${INTERACTIVE_SRC})
     target_include_directories(hle_interactive PRIVATE ${HLE_INCLUDE_DIR})
-    target_include_directories(hle_interactive SYSTEM PRIVATE ${lvgl_SOURCE_DIR})
+    target_include_directories(hle_interactive SYSTEM PRIVATE ${lvgl_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
     target_compile_definitions(hle_interactive PRIVATE
         -DLV_CONF_INCLUDE_SIMPLE
         -DLV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h"
