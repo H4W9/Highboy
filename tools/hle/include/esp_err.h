@@ -28,6 +28,17 @@ typedef int32_t esp_err_t;
 
 #define ESP_OK_CHECK(x) do { esp_err_t _err = (x); if (_err != ESP_OK) return _err; } while(0)
 
+#define ESP_ERROR_CHECK(x) do {                                          \
+        esp_err_t _esp_err_rc = (x);                                    \
+        if (_esp_err_rc != ESP_OK) {                                    \
+            _esp_error_check_failed(_esp_err_rc, __FILE__, __LINE__,    \
+                                    __FUNCTION__, #x);                  \
+        }                                                               \
+    } while(0)
+
+void _esp_error_check_failed(esp_err_t rc, const char *file, int line,
+                              const char *func, const char *expr);
+
 #ifdef __cplusplus
 }
 #endif

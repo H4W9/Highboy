@@ -12,6 +12,8 @@ extern "C" {
 #define ESP_LOGD(tag, fmt, ...) fprintf(stderr, "D [%s] " fmt "\n", tag, ##__VA_ARGS__)
 #define ESP_LOGV(tag, fmt, ...) fprintf(stderr, "V [%s] " fmt "\n", tag, ##__VA_ARGS__)
 
+typedef int vprintf_like_t;
+
 #ifdef __cplusplus
 }
 #endif

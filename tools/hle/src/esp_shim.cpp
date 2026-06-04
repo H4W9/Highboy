@@ -29,6 +29,8 @@
 #include "hle/hle_display.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_vfs_fat.h"
+#include "esp_littlefs.h"
+#include "esp_partition.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -766,3 +768,23 @@ esp_err_t esp_vfs_fat_spiflash_unmount(const char *base, void *wl_handle) {
 }
 
 } // extern "C"
+
+// LittleFS stubs
+esp_err_t esp_vfs_littlefs_register(const esp_vfs_littlefs_conf_t *conf) {
+    if (conf && conf->base_path) {
+        std::string dir = s_base_path + conf->base_path;
+        mkdir(dir.c_str(), 0755);
+        fprintf(stderr, "I [LFS] Registered HLE LittleFS at %s\n", conf->base_path);
+    }
+    return ESP_OK;
+}
+esp_err_t esp_vfs_littlefs_unregister(const char *label) { (void)label; return ESP_OK; }
+
+// Partition stubs
+esp_partition_t *esp_partition_find_first(int type, int subtype, const char *label) {
+    (void)type; (void)subtype; (void)label;
+    static esp_partition_t p = {0, 8*1024*1024, "storage"};
+    return &p;
+}
+const esp_partition_t *esp_ota_get_running_partition(void) { return nullptr; }
+void esp_partition_get_sha256(const esp_partition_t *p, uint8_t *sha) { (void)p; memset(sha, 0, 32); }

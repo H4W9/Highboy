@@ -30,7 +30,10 @@ typedef struct {
     int color_space;
     int bits_per_pixel;
     int flags;
+    int rgb_ele_order;
 } esp_lcd_panel_dev_config_t;
+
+#define LCD_RGB_ELEMENT_ORDER_RGB 0
 
 typedef enum {
     ESP_LCD_COLOR_SPACE_RGB = 0,

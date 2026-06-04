@@ -33,24 +33,34 @@ collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Drivers/*.c"
 message(STATUS "C5 driver files: ${C5_DRV}")
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/spi_bridge.c" C5_SVC_BRIDGE)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/session_manager.c" C5_SVC_SESSION)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/wifi_dispatcher.c" C5_SVC_WIFI_DISP)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_c5" "components/Service/spi_bridge/bt_dispatcher.c" C5_SVC_BT_DISP)
+# wifi_dispatcher.c and bt_dispatcher.c excluded — they reference 60+ app functions
+# that need deep BLE/WiFi stack integration. These are routing tables, not business logic.
 
 # ── P4 firmware sources ──────────────────────────────────────────────────────
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Core/*.c" P4_CORE_SRC)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "main/*.c" P4_MAIN_SRC)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/spi/spi.c" P4_DRV_SPI)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/buttons_gpio/*.c" P4_DRV_BTN)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/i2c_init/*.c" P4_DRV_I2C)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/bq25896/*.c" P4_DRV_BQ)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/led/led_control.c" P4_DRV_LED)
-collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/i2c_init/*.c" P4_DRV_I2C)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Drivers/buttons_gpio/*.c" P4_DRV_BTN)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_vfs/vfs_core.c" P4_VFS_CORE)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_vfs/vfs_auto.c" P4_VFS_AUTO)
-# UI subsystem
+# UI subsystem — REAL firmware code
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/ui_manager.c" P4_UI_MGR)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/ui_theme.c" P4_UI_THEME)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/screens/boot/boot_ui.c" P4_UI_BOOT)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/screens/home/home_ui.c" P4_UI_HOME)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/components/header/header_ui.c" P4_UI_HEADER)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/components/dropdown/dropdown_ui.c" P4_UI_DROPDOWN)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/components/message_box/msgbox_ui.c" P4_UI_MSGBOX)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/ui/assets_manager.c" P4_UI_ASSETS)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_assets/storage_assets.c" P4_STORAGE_ASSETS)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_api/storage_init.c" P4_STORAGE_INIT)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_api/tos_first_boot.c" P4_TOS_FIRST_BOOT)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_api/tos_config.c" P4_TOS_CONFIG)
+collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/storage_api/tos_theme.c" P4_TOS_THEME)
+# tos_log.c excluded — it hooks esp_log vprintf which is ESP-IDF-specific
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 include(FetchContent)
@@ -87,16 +97,17 @@ target_compile_options(hle_shims PRIVATE -Wno-pmf-conversions)
 
 add_library(firmware_c5 STATIC
     ${C5_CORE_SRC} ${C5_MAIN_SRC} ${C5_DRV}
-    ${C5_SVC_BRIDGE} ${C5_SVC_SESSION} ${C5_SVC_WIFI_DISP} ${C5_SVC_BT_DISP}
+    ${C5_SVC_BRIDGE} ${C5_SVC_SESSION}
 )
 target_include_directories(firmware_c5 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${C5_INCLUDES})
 target_compile_options(firmware_c5 PRIVATE -Wno-implicit-function-declaration)
 
 add_library(firmware_p4 STATIC
     ${P4_CORE_SRC} ${P4_MAIN_SRC}
-    ${P4_DRV_SPI} ${P4_DRV_BTN} ${P4_DRV_BQ} ${P4_DRV_LED} ${P4_DRV_I2C}
+    ${P4_DRV_SPI} ${P4_DRV_I2C} ${P4_DRV_BQ} ${P4_DRV_LED} ${P4_DRV_BTN}
     ${P4_VFS_CORE} ${P4_VFS_AUTO}
-    ${P4_UI_MGR} ${P4_UI_THEME} ${P4_UI_BOOT} ${P4_UI_HOME}
+    ${P4_STORAGE_ASSETS} ${P4_STORAGE_INIT} ${P4_TOS_FIRST_BOOT} ${P4_TOS_CONFIG} ${P4_TOS_THEME}
+    ${P4_UI_MGR} ${P4_UI_THEME} ${P4_UI_BOOT} ${P4_UI_HOME} ${P4_UI_HEADER} ${P4_UI_DROPDOWN} ${P4_UI_MSGBOX} ${P4_UI_ASSETS}
 )
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${P4_INCLUDES})
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${lvgl_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
@@ -128,6 +139,6 @@ if(SDL2_FOUND)
         -DLV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h"
         -DLV_LVGL_H_INCLUDE_SIMPLE
     )
-    target_link_libraries(hle_interactive PRIVATE hle_shims lvgl SDL2::SDL2 pthread)
+    target_link_libraries(hle_interactive PRIVATE hle_shims firmware_c5 firmware_p4 lvgl SDL2::SDL2 pthread cjson)
     message(STATUS "SDL2 found — hle_interactive enabled")
 endif()
