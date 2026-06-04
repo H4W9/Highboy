@@ -30,6 +30,9 @@ public:
 
         m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_ACCELERATED);
         if (!m_renderer) {
+            m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_SOFTWARE);
+        }
+        if (!m_renderer) {
             fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
             return false;
         }

@@ -1,14 +1,16 @@
-#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <thread>
+#include <chrono>
 
 extern "C" {
 #include "esp_log.h"
 }
 #include "hle/sdl_renderer.h"
 #include "hle/hle_display.h"
-#include "hle/lv_port_hle.h"
+#include "hle/spi_bridge_channel.h"
+#include "hle/hle_kernel.h"
 
 #include <lvgl.h>
 
@@ -30,19 +32,14 @@ int main(int argc, char **argv) {
     lv_init();
     lv_tick_set_cb(lv_get_tick);
 
-    hle_lv_port_disp_init();
+    // Create bridge channel and hand it to kernel + shims
+    hle::SPIBridgeChannel channel;
+    hle_set_bridge_channel(&channel);
 
-    lv_obj_t *label = lv_label_create(lv_screen_active());
-    lv_label_set_text(label, "TentacleOS HLE\n\nPress ESC to quit");
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+    // Boot firmware
+    hle_kernel_init();
 
-    lv_obj_t *btn = lv_button_create(lv_screen_active());
-    lv_obj_set_size(btn, 100, 40);
-    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -20);
-    lv_obj_t *btn_label = lv_label_create(btn);
-    lv_label_set_text(btn_label, "OK");
-
-    ESP_LOGI(TAG, "Entering main loop...");
+    ESP_LOGI(TAG, "=== TentacleOS HLE running ===");
 
     bool quit = false;
     while (!quit) {

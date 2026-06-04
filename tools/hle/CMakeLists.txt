@@ -71,6 +71,7 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-variable
 file(GLOB_RECURSE HLE_SRC "${HLE_SRC_DIR}/*.cpp")
 list(FILTER HLE_SRC EXCLUDE REGEX ".*main\\.cpp$")        # main is for interactive only
 list(FILTER HLE_SRC EXCLUDE REGEX ".*lv_port.*\\.cpp$")   # lv_port needs display context
+list(FILTER HLE_SRC EXCLUDE REGEX ".*hle_kernel.*\\.cpp$") # kernel needs LVGL + bridge
 add_library(hle_shims STATIC ${HLE_SRC})
 target_include_directories(hle_shims PUBLIC ${HLE_INCLUDE_DIR})
 target_compile_options(hle_shims PRIVATE -Wno-pmf-conversions)
@@ -106,6 +107,7 @@ if(SDL2_FOUND)
         "${HLE_SRC_DIR}/main.cpp"
         "${HLE_SRC_DIR}/hal/lv_port_disp_hle.cpp"
         "${HLE_SRC_DIR}/hal/lv_port_indev_hle.cpp"
+        "${HLE_SRC_DIR}/hal/hle_kernel.cpp"
     )
     add_executable(hle_interactive EXCLUDE_FROM_ALL ${INTERACTIVE_SRC})
     target_include_directories(hle_interactive PRIVATE ${HLE_INCLUDE_DIR})
