@@ -45,11 +45,8 @@ int main(int argc, char **argv) {
     while (!quit) {
         uint8_t keys_pressed, keys_held;
         renderer.handle_events(keys_pressed, keys_held, quit);
-
-        lv_timer_handler();
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-
         renderer.render();
+        std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 fps
     }
 
     renderer.shutdown();
