@@ -402,6 +402,13 @@ void sx1262_stop(void) {
   ESP_LOGI(TAG, "Stopped");
 }
 
+esp_err_t sx1262_deinit(void) {
+  sx1262_stop();
+  esp_err_t ret = sx1262_hal_destroy();
+  s_is_initialized = false;
+  return ret;
+}
+
 esp_err_t sx1262_set_callbacks(const sx1262_callbacks_t *cbs) {
   if (cbs == NULL) {
     return ESP_ERR_INVALID_ARG;
