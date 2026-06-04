@@ -66,6 +66,7 @@ typedef enum {
   IR_PROTO_PANASONIC,
   IR_PROTO_RCA,
   IR_PROTO_PIONEER,
+  IR_PROTO_NEC42,
   IR_PROTO_COUNT,
 } ir_protocol_t;
 

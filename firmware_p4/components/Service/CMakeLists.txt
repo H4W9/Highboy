@@ -44,6 +44,7 @@ idf_component_register(SRCS
   "ir/ir_ac_haier.c"
   "ir/ir_protocol.c"
   "ir/ir_protocol_nec.c"
+  "ir/ir_protocol_nec42.c"
   "ir/ir_protocol_samsung.c"
   "ir/ir_protocol_lg.c"
   "ir/ir_protocol_jvc.c"

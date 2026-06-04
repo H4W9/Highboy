@@ -22,6 +22,7 @@
 #include "esp_log.h"
 
 #include "ir_protocol_nec.h"
+#include "ir_protocol_nec42.h"
 #include "ir_protocol_samsung.h"
 #include "ir_protocol_rc5.h"
 #include "ir_protocol_rc6.h"
@@ -89,11 +90,16 @@ static uint32_t parse_hex_bytes(const char *str) {
 static bool
 flipper_to_ir_data(const char *proto, uint32_t addr, uint32_t cmd, ir_data_t *out_data) {
   memset(out_data, 0, sizeof(ir_data_t));
-  if (strcmp(proto, "NEC") == 0 || strcmp(proto, "NECext") == 0 || strcmp(proto, "NEC42") == 0 ||
-      strcmp(proto, "NEC42ext") == 0) {
+  if (strcmp(proto, "NEC") == 0 || strcmp(proto, "NECext") == 0) {
     out_data->protocol = IR_PROTO_NEC;
     out_data->address = addr & NEC_EXT_ADDR_MASK;
     out_data->command = cmd & NEC_EXT_CMD_MASK;
+    return true;
+  }
+  if (strcmp(proto, "NEC42") == 0 || strcmp(proto, "NEC42ext") == 0) {
+    out_data->protocol = IR_PROTO_NEC42;
+    out_data->address = addr & NEC42_ADDR_MASK;
+    out_data->command = cmd & NEC42_CMD_MASK;
     return true;
   }
   if (strcmp(proto, "Samsung32") == 0) {
@@ -146,6 +152,8 @@ static const char *to_flipper_proto(ir_protocol_t proto, uint32_t address, uint3
     case IR_PROTO_NEC:
       return (address > NEC_ADDR_STANDARD_MAX || command > NEC_ADDR_STANDARD_MAX) ? "NECext"
                                                                                   : "NEC";
+    case IR_PROTO_NEC42:
+      return "NEC42";
     case IR_PROTO_SAMSUNG:
       return "Samsung32";
     case IR_PROTO_RC6:

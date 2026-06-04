@@ -30,6 +30,7 @@
 #include "ir_protocol_panasonic.h"
 #include "ir_protocol_rca.h"
 #include "ir_protocol_pioneer.h"
+#include "ir_protocol_nec42.h"
 
 static const char *TAG = "IR_PROTOCOL";
 
@@ -66,6 +67,8 @@ const char *ir_protocol_name(ir_protocol_t proto) {
       return "RCA";
     case IR_PROTO_PIONEER:
       return "PIONEER";
+    case IR_PROTO_NEC42:
+      return "NEC42";
     default:
       return "UNKNOWN";
   }
@@ -235,6 +238,8 @@ bool ir_decode(const rmt_symbol_word_t *symbols, size_t count, ir_data_t *out_da
 
   if (ir_protocol_pioneer_decode(symbols, count, out_data))
     return true;
+  if (ir_protocol_nec42_decode(symbols, count, out_data))
+    return true;
   if (ir_protocol_nec_decode(symbols, count, out_data))
     return true;
   if (ir_protocol_lg_decode(symbols, count, out_data))
@@ -288,6 +293,8 @@ size_t ir_encode(const ir_data_t *data, rmt_symbol_word_t *symbols, size_t max) 
       return ir_protocol_rca_encode(data, symbols, max);
     case IR_PROTO_PIONEER:
       return ir_protocol_pioneer_encode(data, symbols, max);
+    case IR_PROTO_NEC42:
+      return ir_protocol_nec42_encode(data, symbols, max);
     default:
       ESP_LOGW(TAG, "Encode called with unknown protocol: %d", (int)data->protocol);
       return 0;
