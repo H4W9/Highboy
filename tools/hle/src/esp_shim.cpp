@@ -26,6 +26,8 @@
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
 #include "hle/spi_bridge_channel.h"
+#include "hle/hle_display.h"
+#include "esp_lcd_panel_ops.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -650,3 +652,64 @@ void sdmmc_card_print_info(FILE *f, const sdmmc_card_t *card) {
     (void)f; (void)card; fprintf(stderr, "I [SDMMC] Mock SD card\n");
 }
 void sdmmc_host_deinit(void) {}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ESP LCD Panel Stubs (wired to HLE Display)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+typedef void (*hle_color_trans_done_t)(void *, void *, void *);
+struct HLEPanel {
+    hle_color_trans_done_t on_color_trans_done;
+    void *ctx;
+};
+
+esp_err_t esp_lcd_new_panel_io_spi(int bus, const esp_lcd_panel_io_spi_config_t *cfg,
+                                    esp_lcd_panel_io_handle_t *out_io) {
+    (void)bus; (void)cfg;
+    auto *io = new HLEPanel{};
+    if (out_io) *out_io = io;
+    return ESP_OK;
+}
+
+esp_err_t esp_lcd_new_panel_st7789(esp_lcd_panel_io_handle_t io,
+                                    const esp_lcd_panel_dev_config_t *cfg,
+                                    esp_lcd_panel_handle_t *out_panel) {
+    (void)io; (void)cfg;
+    if (out_panel) *out_panel = io;
+    return ESP_OK;
+}
+
+esp_err_t esp_lcd_panel_reset(esp_lcd_panel_handle_t panel) { (void)panel; return ESP_OK; }
+esp_err_t esp_lcd_panel_init(esp_lcd_panel_handle_t panel) { (void)panel; return ESP_OK; }
+esp_err_t esp_lcd_panel_invert_color(esp_lcd_panel_handle_t panel, bool invert) { (void)panel; (void)invert; return ESP_OK; }
+esp_err_t esp_lcd_panel_disp_on_off(esp_lcd_panel_handle_t panel, bool on) { (void)panel; (void)on; return ESP_OK; }
+esp_err_t esp_lcd_panel_mirror(esp_lcd_panel_handle_t panel, bool mx, bool my) { (void)panel; (void)mx; (void)my; return ESP_OK; }
+esp_err_t esp_lcd_panel_swap_xy(esp_lcd_panel_handle_t panel, bool swap) { (void)panel; (void)swap; return ESP_OK; }
+esp_err_t esp_lcd_panel_set_gap(esp_lcd_panel_handle_t panel, int x, int y) { (void)panel; (void)x; (void)y; return ESP_OK; }
+
+esp_err_t esp_lcd_panel_draw_bitmap(esp_lcd_panel_handle_t panel, int x0, int y0, int x1, int y1,
+                                     const void *data) {
+    (void)panel;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > hle::LCD_H_RES) x1 = hle::LCD_H_RES;
+    if (y1 > hle::LCD_V_RES) y1 = hle::LCD_V_RES;
+    hle::Display::instance().draw_bitmap(x0, y0, x1, y1, static_cast<const uint16_t *>(data));
+
+    // Notify LVGL flush ready
+    auto *io = static_cast<HLEPanel *>(panel);
+    if (io && io->on_color_trans_done) {
+        io->on_color_trans_done(io, nullptr, io->ctx);
+    }
+    return ESP_OK;
+}
+
+esp_err_t esp_lcd_panel_io_register_event_callbacks(esp_lcd_panel_io_handle_t io,
+    const esp_lcd_panel_io_callbacks_t *cbs, void *ctx) {
+    auto *p = static_cast<HLEPanel *>(io);
+    if (p && cbs) {
+        p->on_color_trans_done = (hle_color_trans_done_t)cbs->on_color_trans_done;
+        p->ctx = ctx;
+    }
+    return ESP_OK;
+}

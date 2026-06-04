@@ -71,9 +71,10 @@ typedef struct {
 #define GPIO_MODE_OUTPUT     2
 #define GPIO_MODE_INPUT_OUTPUT 3
 #define GPIO_MODE_INPUT_OUTPUT_OD 4
-#define GPIO_PULLUP_ENABLE   1
-#define GPIO_PULLUP_DISABLE  0
-#define GPIO_PULLDOWN_ENABLE 1
+#define GPIO_PULLUP_ENABLE    1
+#define GPIO_PULLUP_DISABLE   0
+#define GPIO_PULLDOWN_ENABLE  1
+#define GPIO_PULLDOWN_DISABLE 0
 
 esp_err_t gpio_config(const gpio_config_t *cfg);
 esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level);

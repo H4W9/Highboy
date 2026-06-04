@@ -5,6 +5,7 @@
 
 #include "esp_err.h"
 #include "driver/gpio.h"
+#include "soc/spi_periph.h"
 
 #ifdef __cplusplus
 extern "C" {
