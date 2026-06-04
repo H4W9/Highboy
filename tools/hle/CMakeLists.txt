@@ -179,6 +179,7 @@ if(SDL2_FOUND)
         -DLV_CONF_INCLUDE_SIMPLE
         -DLV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h"
         -DLV_LVGL_H_INCLUDE_SIMPLE
+        -DHLE_ASSETS_DIR="${HLE_ASSETS_DIR}"
     )
     target_link_options(hle_interactive PRIVATE
         -Wl,--wrap=fopen

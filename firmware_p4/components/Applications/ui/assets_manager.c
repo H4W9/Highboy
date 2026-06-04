@@ -128,21 +128,23 @@ static void scan_and_load_recursive(const char *base_path) {
   char path[512];
 
   while ((ent = readdir(dir)) != NULL) {
-    if (ent->d_type == DT_DIR) {
-      if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-        continue;
-      snprintf(path, sizeof(path), "%s/%s", base_path, ent->d_name);
-      scan_and_load_recursive(path);
-    } else if (ent->d_type == DT_REG) {
-      size_t len = strlen(ent->d_name);
-      if (len > 4 && strcmp(ent->d_name + len - 4, ".bin") == 0) {
-        snprintf(path, sizeof(path), "%s/%s", base_path, ent->d_name);
+    if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+      continue;
 
-        if (assets_get(path) == NULL) {
-          lv_image_dsc_t *dsc = load_asset_from_file(path);
-          if (dsc) {
-            add_asset_to_list(path, dsc, false);
-          }
+    snprintf(path, sizeof(path), "%s/%s", base_path, ent->d_name);
+
+    struct stat st;
+    if (stat(path, &st) != 0)
+      continue;
+
+    if (S_ISDIR(st.st_mode)) {
+      scan_and_load_recursive(path);
+    } else if (S_ISREG(st.st_mode)) {
+      size_t len = strlen(ent->d_name);
+      if (len > 4 && strcmp(ent->d_name + len - 4, ".bin") == 0 && assets_get(path) == NULL) {
+        lv_image_dsc_t *dsc = load_asset_from_file(path);
+        if (dsc) {
+          add_asset_to_list(path, dsc, false);
         }
       }
     }
@@ -229,15 +231,16 @@ int assets_load_from_sd(const char *sd_dir, const char *flash_prefix) {
   char cache_key[512];
 
   while ((ent = readdir(dir)) != NULL) {
-    if (ent->d_type != DT_REG)
+    snprintf(sd_path, sizeof(sd_path), "%s/%s", sd_dir, ent->d_name);
+    snprintf(cache_key, sizeof(cache_key), "%s/%s", flash_prefix, ent->d_name);
+
+    struct stat st;
+    if (stat(sd_path, &st) != 0 || !S_ISREG(st.st_mode))
       continue;
 
     size_t len = strlen(ent->d_name);
     if (len <= 4 || strcmp(ent->d_name + len - 4, ".bin") != 0)
       continue;
-
-    snprintf(sd_path, sizeof(sd_path), "%s/%s", sd_dir, ent->d_name);
-    snprintf(cache_key, sizeof(cache_key), "%s/%s", flash_prefix, ent->d_name);
 
     lv_image_dsc_t *dsc = load_asset_from_file(sd_path);
     if (dsc == NULL)

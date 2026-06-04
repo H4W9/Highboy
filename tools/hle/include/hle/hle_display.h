@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <mutex>
 
 namespace hle {
@@ -30,6 +31,27 @@ public:
         m_dirty = true;
     }
 
+    void draw_bitmap_strided(int x0, int y0, int x1, int y1, const uint8_t *data, size_t src_stride_bytes) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const int w = x1 - x0;
+        const int h = y1 - y0;
+        if (w <= 0 || h <= 0) return;
+
+        for (int row = 0; row < h; ++row) {
+            const auto *src_row = reinterpret_cast<const uint16_t *>(data + (row * src_stride_bytes));
+            for (int col = 0; col < w; ++col) {
+                const int x = x0 + col;
+                const int y = y0 + row;
+                const int idx = y * LCD_H_RES + x;
+                if (idx >= 0 && idx < LCD_H_RES * LCD_V_RES) {
+                    m_pixels[idx] = src_row[col];
+                }
+            }
+        }
+
+        m_dirty = true;
+    }
+
     void fill_screen(uint16_t color) {
         std::lock_guard<std::mutex> lock(m_mutex);
         for (int i = 0; i < LCD_H_RES * LCD_V_RES; i++) m_pixels[i] = color;
@@ -42,6 +64,32 @@ public:
 
     bool is_dirty() const { return m_dirty; }
     void clear_dirty() { m_dirty = false; }
+
+    bool save_ppm(const char *path) {
+        if (path == nullptr) {
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        FILE *file = fopen(path, "wb");
+        if (file == nullptr) {
+            return false;
+        }
+
+        fprintf(file, "P6\n%d %d\n255\n", LCD_H_RES, LCD_V_RES);
+        for (int i = 0; i < LCD_H_RES * LCD_V_RES; ++i) {
+            const uint16_t pixel = m_pixels[i];
+            const uint8_t r = static_cast<uint8_t>(((pixel >> 11) & 0x1F) * 255 / 31);
+            const uint8_t g = static_cast<uint8_t>(((pixel >> 5) & 0x3F) * 255 / 63);
+            const uint8_t b = static_cast<uint8_t>((pixel & 0x1F) * 255 / 31);
+            fputc(r, file);
+            fputc(g, file);
+            fputc(b, file);
+        }
+
+        fclose(file);
+        return true;
+    }
 
     std::mutex &mutex() { return m_mutex; }
 

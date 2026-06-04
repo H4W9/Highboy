@@ -24,6 +24,12 @@ static uint32_t lv_get_tick(void) {
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
 
+    const char *snapshot_path = std::getenv("HLE_SNAPSHOT_PATH");
+    const char *snapshot_ms_env = std::getenv("HLE_SNAPSHOT_MS");
+    const uint32_t snapshot_ms =
+        snapshot_ms_env ? static_cast<uint32_t>(std::strtoul(snapshot_ms_env, nullptr, 10)) : 0;
+    bool snapshot_taken = false;
+
     hle::SDLRenderer renderer;
     if (!renderer.init()) {
         fprintf(stderr, "Failed to initialize SDL2\n");
@@ -48,6 +54,13 @@ int main(int argc, char **argv) {
         renderer.handle_events(keys_pressed, keys_held, quit);
         hle_set_button_mask(keys_held);
         renderer.render();
+
+        if (!snapshot_taken && snapshot_path != nullptr && snapshot_ms > 0 && lv_get_tick() >= snapshot_ms) {
+            hle::Display::instance().save_ppm(snapshot_path);
+            snapshot_taken = true;
+            quit = true;
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 fps
     }
 
