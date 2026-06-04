@@ -226,7 +226,7 @@ static void bridge_task(void *pvParameters) {
     spi_status_t status = SPI_STATUS_OK;
     uint8_t resp_payload[SPI_MAX_PAYLOAD];
     uint8_t resp_len = 0;
-    bool tx_ready = false;          // set when the case already built a complete tx_buf frame
+    bool tx_ready = false;           // set when the case already built a complete tx_buf frame
     size_t tx_size = SPI_FRAME_SIZE; // bytes the master will clock for the response
 
     uint16_t cmd = spi_header_cmd(header);
@@ -295,11 +295,8 @@ static void bridge_task(void *pvParameters) {
           while ((w = stream_pop_into(recs, batch_len, cap)) > 0)
             batch_len += w;
 
-          spi_header_t stream_header = {.sync = SPI_SYNC_BYTE,
-                                        .type = SPI_TYPE_STREAM,
-                                        .category = 0,
-                                        .op = 0,
-                                        .length = 0};
+          spi_header_t stream_header = {
+              .sync = SPI_SYNC_BYTE, .type = SPI_TYPE_STREAM, .category = 0, .op = 0, .length = 0};
           memcpy(tx_buf, &stream_header, sizeof(stream_header));
           tx_buf[sizeof(spi_header_t)] = (uint8_t)(batch_len & 0xFF);
           tx_buf[sizeof(spi_header_t) + 1] = (uint8_t)((batch_len >> 8) & 0xFF);
