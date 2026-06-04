@@ -33,6 +33,7 @@ extern "C" {
 #define GPIO_IR_TX_PIN        5
 #define IR_RMT_RESOLUTION_HZ  1000000
 #define IR_RMT_MEM_SYMBOLS    128
+#define IR_MAX_SYMBOLS        512
 #define IR_RX_MIN_NS          1250
 #define IR_RX_MAX_NS          12000000
 #define IR_TX_QUEUE_DEPTH     4

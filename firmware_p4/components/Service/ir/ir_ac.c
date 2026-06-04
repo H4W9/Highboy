@@ -124,8 +124,8 @@ esp_err_t ir_ac_send(const ir_ac_state_t *state) {
   if (state == NULL)
     return ESP_ERR_INVALID_ARG;
 
-  rmt_symbol_word_t symbols[IR_RMT_MEM_SYMBOLS];
-  size_t count = ir_ac_encode(state, symbols, IR_RMT_MEM_SYMBOLS);
+  rmt_symbol_word_t symbols[IR_MAX_SYMBOLS];
+  size_t count = ir_ac_encode(state, symbols, IR_MAX_SYMBOLS);
   if (count == 0)
     return ESP_ERR_INVALID_ARG;
 

@@ -29,7 +29,7 @@ static const char *TAG = "IR";
 
 static rmt_channel_handle_t s_rx_chan;
 static QueueHandle_t s_rx_queue;
-static rmt_symbol_word_t s_rx_buffer[IR_RMT_MEM_SYMBOLS];
+static rmt_symbol_word_t s_rx_buffer[IR_MAX_SYMBOLS];
 static rmt_receive_config_t s_rx_cfg = {
     .signal_range_min_ns = IR_RX_MIN_NS,
     .signal_range_max_ns = IR_RX_MAX_NS,
@@ -43,7 +43,7 @@ static SemaphoreHandle_t s_mutex = NULL;
 static bool s_is_rx_inited = false;
 static bool s_is_tx_inited = false;
 
-static rmt_symbol_word_t s_last_raw[IR_RMT_MEM_SYMBOLS];
+static rmt_symbol_word_t s_last_raw[IR_MAX_SYMBOLS];
 static size_t s_last_raw_count = 0;
 
 static bool rx_callback(rmt_channel_handle_t ch, const rmt_rx_done_event_data_t *data, void *ctx);
@@ -65,10 +65,10 @@ esp_err_t ir_rx_init(void) {
   rmt_rx_channel_config_t cfg = {
       .clk_src = RMT_CLK_SRC_DEFAULT,
       .resolution_hz = IR_RMT_RESOLUTION_HZ,
-      .mem_block_symbols = IR_RMT_MEM_SYMBOLS,
+      .mem_block_symbols = IR_MAX_SYMBOLS,
       .gpio_num = GPIO_IR_RX_PIN,
       .flags.invert_in = false,
-      .flags.with_dma = false,
+      .flags.with_dma = true,
   };
 
   esp_err_t ret = rmt_new_rx_channel(&cfg, &s_rx_chan);
@@ -160,8 +160,8 @@ esp_err_t ir_receive(ir_data_t *out_data, uint32_t timeout_ms) {
 
   if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
     s_last_raw_count = rx_data.num_symbols;
-    if (s_last_raw_count > IR_RMT_MEM_SYMBOLS)
-      s_last_raw_count = IR_RMT_MEM_SYMBOLS;
+    if (s_last_raw_count > IR_MAX_SYMBOLS)
+      s_last_raw_count = IR_MAX_SYMBOLS;
     memcpy(s_last_raw, rx_data.received_symbols, s_last_raw_count * sizeof(rmt_symbol_word_t));
     xSemaphoreGive(s_mutex);
   }
