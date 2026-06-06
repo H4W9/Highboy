@@ -25,20 +25,16 @@
 
 static const char *TAG = "LV_PORT_DISP";
 
-#define LVGL_BUF_LINES  (LCD_V_RES / 2)
-#define LVGL_BUF_PIXELS (LCD_H_RES * LVGL_BUF_LINES)
-
 // LVGL renders into XRGB8888 buffers (4 bytes/px) so gradients are interpolated
-// at 8 bits per channel. These live in PSRAM since they are CPU-only.
-#define RENDER_BUF_BYTES (LVGL_BUF_PIXELS * 4)
-#define RENDER_BUF_ALLOC (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-
-// The dithered RGB565 result is staged here for the panel DMA transfer.
-#define XFER_BUF_BYTES (LVGL_BUF_PIXELS * sizeof(uint16_t))
-#define XFER_BUF_ALLOC (MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)
+// at 8 bits per channel; disp_flush then dithers them down to RGB565 in place
+// before the panel transfer. Using a quarter of the lines keeps internal DMA RAM
+// usage equal to the old RGB565 buffers (4 bytes/px over half as many lines).
+#define LVGL_BUF_LINES  (LCD_V_RES / 4)
+#define LVGL_BUF_PIXELS (LCD_H_RES * LVGL_BUF_LINES)
+#define LVGL_BUF_BYTES  (LVGL_BUF_PIXELS * 4)
+#define LVGL_BUF_ALLOC  (MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)
 
 static lv_display_t *s_disp_handle = NULL;
-static uint16_t *s_xfer_buf = NULL;
 
 // Ordered 8x8 Bayer threshold matrix (values 0..63), indexed by screen
 // coordinates so the dither pattern stays stable across partial flushes.
@@ -65,8 +61,11 @@ static void disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_ma
   uint32_t w = lv_area_get_width(area);
   uint32_t h = lv_area_get_height(area);
 
+  // Dither in place: the RGB565 output (2 bytes/px) is written into the front of
+  // the same buffer. The write cursor always trails the XRGB8888 read cursor
+  // (4 bytes/px), so every source pixel is consumed before it can be overwritten.
   const lv_color32_t *src = (const lv_color32_t *)px_map;
-  uint16_t *dst = s_xfer_buf;
+  uint16_t *dst = (uint16_t *)px_map;
 
   for (uint32_t row = 0; row < h; row++) {
     const uint8_t *bayer_row = s_bayer8[(area->y1 + row) & 7];
@@ -101,20 +100,15 @@ void lv_port_disp_init(void) {
   s_disp_handle = lv_display_create(LCD_H_RES, LCD_V_RES);
   lv_display_set_flush_cb(s_disp_handle, disp_flush);
 
-  void *buf1 = heap_caps_malloc(RENDER_BUF_BYTES, RENDER_BUF_ALLOC);
-  void *buf2 = heap_caps_malloc(RENDER_BUF_BYTES, RENDER_BUF_ALLOC);
-  s_xfer_buf = heap_caps_malloc(XFER_BUF_BYTES, XFER_BUF_ALLOC);
+  void *buf1 = heap_caps_malloc(LVGL_BUF_BYTES, LVGL_BUF_ALLOC);
+  void *buf2 = heap_caps_malloc(LVGL_BUF_BYTES, LVGL_BUF_ALLOC);
 
-  if (buf1 == NULL || buf2 == NULL || s_xfer_buf == NULL) {
-    ESP_LOGE(TAG,
-             "Failed to allocate display buffers (render %u x2, xfer %u)",
-             (unsigned)RENDER_BUF_BYTES,
-             (unsigned)XFER_BUF_BYTES);
+  if (buf1 == NULL || buf2 == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate display buffers (%u bytes each)", (unsigned)LVGL_BUF_BYTES);
     return;
   }
 
-  lv_display_set_buffers(
-      s_disp_handle, buf1, buf2, RENDER_BUF_BYTES, LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_buffers(s_disp_handle, buf1, buf2, LVGL_BUF_BYTES, LV_DISPLAY_RENDER_MODE_PARTIAL);
 
   const esp_lcd_panel_io_callbacks_t cbs = {
       .on_color_trans_done = flush_ready_cb,
@@ -122,9 +116,8 @@ void lv_port_disp_init(void) {
   esp_lcd_panel_io_register_event_callbacks(io_handle, &cbs, s_disp_handle);
 
   ESP_LOGI(TAG,
-           "Display port initialized (%dx%d, render %u bytes x2, xfer %u bytes)",
+           "Display port initialized (%dx%d, buf: %u bytes x2)",
            LCD_H_RES,
            LCD_V_RES,
-           (unsigned)RENDER_BUF_BYTES,
-           (unsigned)XFER_BUF_BYTES);
+           (unsigned)LVGL_BUF_BYTES);
 }
