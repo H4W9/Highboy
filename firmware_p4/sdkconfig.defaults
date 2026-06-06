@@ -45,5 +45,9 @@ CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
 CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 
+# Render internally at XRGB8888 so gradients are interpolated at 8 bits/channel.
+# The display port dithers down to RGB565 at flush time to remove banding.
+CONFIG_LV_COLOR_DEPTH_32=y
+
 # Default log level INFO
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
