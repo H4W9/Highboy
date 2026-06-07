@@ -54,6 +54,7 @@ typedef enum {
   SPI_CAT_LORA = 0x03,
   SPI_CAT_MESH = 0x04,  // Meshtastic phone bridge
   SPI_CAT_MCORE = 0x05, // MeshCore phone bridge
+  SPI_CAT_HOST = 0x06,  // Companion host-link BLE relay
   SPI_CAT_SESSION = 0xFF
 } spi_cat_t;
 
@@ -77,6 +78,23 @@ typedef enum {
   SPI_ID_SYSTEM_VERSION = SPI_CMD(SPI_CAT_SYSTEM, 0x04),
   SPI_ID_SYSTEM_DATA = SPI_CMD(SPI_CAT_SYSTEM, 0x05),
   SPI_ID_SYSTEM_STREAM = SPI_CMD(SPI_CAT_SYSTEM, 0x06),
+  SPI_ID_SYSTEM_LOG = SPI_CMD(SPI_CAT_SYSTEM, 0x07), // C5→P4 stream: log lines [level u8][utf-8]
+
+  // Companion file ops. P4-local host-link commands (the P4 owns flash + SD);
+  // listed here only so the app and P4 share one id space. Never relayed to C5.
+  SPI_ID_FILE_LIST = SPI_CMD(SPI_CAT_SYSTEM, 0x40),
+  SPI_ID_FILE_STAT = SPI_CMD(SPI_CAT_SYSTEM, 0x41),
+  SPI_ID_FILE_READ = SPI_CMD(SPI_CAT_SYSTEM, 0x42),
+  SPI_ID_FILE_WRITE = SPI_CMD(SPI_CAT_SYSTEM, 0x43),
+  SPI_ID_FILE_DELETE = SPI_CMD(SPI_CAT_SYSTEM, 0x44),
+  SPI_ID_FILE_MKDIR = SPI_CMD(SPI_CAT_SYSTEM, 0x45),
+
+  // Companion device state + settings + console exec. Also P4-local host-link
+  // commands (never relayed to C5); ids shared so the app and P4 agree.
+  SPI_ID_SYSTEM_DEVICE_STATE = SPI_CMD(SPI_CAT_SYSTEM, 0x46),
+  SPI_ID_SYSTEM_CONSOLE_EXEC = SPI_CMD(SPI_CAT_SYSTEM, 0x47),
+  SPI_ID_SYSTEM_GET_SETTINGS = SPI_CMD(SPI_CAT_SYSTEM, 0x48),
+  SPI_ID_SYSTEM_SET_SETTINGS = SPI_CMD(SPI_CAT_SYSTEM, 0x49),
 
   // WiFi Basic
   SPI_ID_WIFI_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x10),
@@ -200,6 +218,14 @@ typedef enum {
   SPI_ID_MCORE_TX_PUSH = SPI_CMD(SPI_CAT_MCORE, 0x9A),
   SPI_ID_MCORE_RX_STREAM = SPI_CMD(SPI_CAT_MCORE, 0x9B),
   SPI_ID_MCORE_STATUS = SPI_CMD(SPI_CAT_MCORE, 0x9C),
+
+  // Companion host-link BLE relay (C5 owns BLE; transparent byte ferry — all
+  // crypto/auth lives on the P4). Mirrors the MeshCore phone-bridge pattern.
+  SPI_ID_HOST_BLE_INIT = SPI_CMD(SPI_CAT_HOST, 0xA0), // P4→C5: start GATT + advertise
+  SPI_ID_HOST_BLE_STOP = SPI_CMD(SPI_CAT_HOST, 0xA1), // P4→C5: stop GATT
+  SPI_ID_HOST_TX = SPI_CMD(SPI_CAT_HOST, 0xA2),       // P4→C5 push: device→app (BLE notify)
+  SPI_ID_HOST_RX = SPI_CMD(SPI_CAT_HOST, 0xA3),       // C5→P4 stream: app→device (BLE write)
+  SPI_ID_HOST_STATUS = SPI_CMD(SPI_CAT_HOST, 0xA4),   // poll BLE connection state
 
   // Session lifecycle (long-running operations)
   SPI_ID_SESSION_HEARTBEAT = SPI_CMD(SPI_CAT_SESSION, 0xF0),
@@ -433,6 +459,28 @@ typedef struct {
   uint8_t ble_subscribed;
   uint8_t reserved[2];
 } __attribute__((packed)) spi_mcore_status_t;
+
+/**
+ * @brief Companion host-link BLE init payload.
+ *
+ * Sent with SPI_ID_HOST_BLE_INIT. The C5 advertises as "<name_prefix>-XXXX"
+ * (last 4 hex of MAC). BLE bonding is "just works" (LE Secure Connections,
+ * no MITM) — the host-link PSK/HMAC envelope on the P4 is the trust boundary.
+ */
+typedef struct {
+  char name_prefix[16];
+} __attribute__((packed)) spi_host_init_t;
+
+/**
+ * @brief Companion host-link transport status payload.
+ *
+ * Returned by SPI_ID_HOST_STATUS.
+ */
+typedef struct {
+  uint8_t ble_connected;
+  uint8_t ble_subscribed;
+  uint8_t reserved[2];
+} __attribute__((packed)) spi_host_status_t;
 
 #ifdef __cplusplus
 }
