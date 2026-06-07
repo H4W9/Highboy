@@ -26,6 +26,7 @@
 
 #include "bq25896.h"
 #include "buttons_gpio.h"
+#include "c5_log.h"
 #include "i2c_init.h"
 #include "led_control.h"
 #include "pin_def.h"
@@ -56,6 +57,7 @@ void kernel_init(void) {
   // led_rgb_init();
   bq25896_init();
   spi_bridge_slave_init();
+  c5_log_init(); // tee C5 logs to the P4 over SPI for the companion console
 
   sys_monitor(false);
 

@@ -329,6 +329,7 @@ static void bridge_task(void *pvParameters) {
         break;
       case SPI_CAT_BT:
       case SPI_CAT_MCORE:
+      case SPI_CAT_HOST:
         status = bt_dispatcher_execute(cmd, cmd_payload, header->length, resp_payload, &resp_len);
         break;
       case SPI_CAT_MESH:

@@ -17,6 +17,7 @@ file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE SD_CARD_SRCS "sd_card/*.c")
 file(GLOB_RECURSE MESHTASTIC_SRCS "meshtastic/*.c")
 file(GLOB_RECURSE MESHCORE_SRCS "meshcore/*.c")
+file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 
 
 idf_component_register(SRCS 
@@ -42,7 +43,8 @@ idf_component_register(SRCS
   ${SD_CARD_SRCS}
   ${MESHTASTIC_SRCS}
   ${MESHCORE_SRCS}
-  INCLUDE_DIRS 
+  ${HOST_LINK_SRCS}
+  INCLUDE_DIRS
   "wifi/include"
   "http_server/include"
   "dns_server/include"
@@ -55,6 +57,7 @@ idf_component_register(SRCS
   "sd_card/include"
   "meshtastic/include"
   "meshcore/include"
+  "host_link/include"
 
 
 

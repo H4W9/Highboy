@@ -24,6 +24,8 @@
 #include "ble_sniffer.h"
 #include "session_manager.h"
 #include "bluetooth_service.h"
+#include "host_link_gatt.h"
+#include "host_transport.h"
 #include "meshcore_gatt.h"
 #include "meshcore_transport.h"
 #include "meshtastic_gatt.h"
@@ -224,6 +226,39 @@ spi_status_t bt_dispatcher_execute(spi_id_t id,
     case SPI_ID_MCORE_STATUS: {
       spi_mcore_status_t status;
       meshcore_transport_get_status(&status);
+      memcpy(out_resp_payload, &status, sizeof(status));
+      *out_resp_len = sizeof(status);
+      return SPI_STATUS_OK;
+    }
+
+    case SPI_ID_HOST_BLE_INIT: {
+      if (len < sizeof(spi_host_init_t)) {
+        return SPI_STATUS_INVALID_ARG;
+      }
+      spi_host_init_t req;
+      memcpy(&req, payload, sizeof(req));
+      req.name_prefix[sizeof(req.name_prefix) - 1] = '\0';
+      if (host_transport_init() != ESP_OK) {
+        return SPI_STATUS_ERROR;
+      }
+      esp_err_t ret = host_link_gatt_init(req.name_prefix);
+      if (ret == ESP_ERR_INVALID_STATE) {
+        return SPI_STATUS_OK;
+      }
+      return (ret == ESP_OK) ? SPI_STATUS_OK : SPI_STATUS_ERROR;
+    }
+
+    case SPI_ID_HOST_BLE_STOP:
+      host_link_gatt_stop();
+      return SPI_STATUS_OK;
+
+    case SPI_ID_HOST_TX:
+      host_transport_inject_tx_chunk(payload, len);
+      return SPI_STATUS_OK;
+
+    case SPI_ID_HOST_STATUS: {
+      spi_host_status_t status;
+      host_transport_get_status(&status);
       memcpy(out_resp_payload, &status, sizeof(status));
       *out_resp_len = sizeof(status);
       return SPI_STATUS_OK;
