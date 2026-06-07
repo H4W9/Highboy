@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/storage_api/p4.md`](../../../../docs/storage_api/p4.md).
+
 # Storage API
 
 The **Storage API** provides a unified, backend-agnostic interface for file system operations in the Highboy project. It abstracts the underlying storage mechanism (LittleFS, SD Card, etc.), allowing developers to perform file and directory operations using a consistent set of functions without worrying about low-level details or mount points.

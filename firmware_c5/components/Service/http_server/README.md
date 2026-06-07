@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/http_server/README.md`](../../../../docs/http_server/README.md).
+
 # HTTP Server Service Component Documentation
 
 This component provides an abstraction layer over ESP-IDF's native `esp_http_server`, facilitating initialization, request handling, response sending, and file system (SD Card) integration for the Highboy project.

@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/spi_bridge/c5.md`](../../../../docs/spi_bridge/c5.md).
+
 # SPI Bridge - C5 Slave
 
 This component transforms the **ESP32-C5** into a high-performance radio co-processor for the ESP32-P4.

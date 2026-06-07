@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/bluetooth/README.md`](../../../../docs/bluetooth/README.md).
+
 # Bluetooth Service Component Documentation
 
 This component manages the Bluetooth Low Energy (BLE) functionality of the device using the Apache NimBLE stack. It provides a high-level API for initialization, lifecycle management, scanning, advertising, connection handling, and address randomization.

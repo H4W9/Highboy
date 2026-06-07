@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/espnow_chat/README.md`](../../../../docs/espnow_chat/README.md).
+
 # ESP-NOW Chat Application
 
 The **ESP-NOW Chat Application** is the high-level logic layer that bridges the raw `Service` capabilities with the User Interface (UI). It handles business logic, event notification, and data formatting for the display.

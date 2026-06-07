@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/esp_now/README.md`](../../../../docs/esp_now/README.md).
+
 # ESP-NOW Service
 
 The **ESP-NOW Service** is the low-level communication backbone for the Highboy project. It abstracts the ESP-IDF `esp_now` driver, providing a robust, connectionless messaging layer with auto-discovery, persistent peer management, and software-based security.

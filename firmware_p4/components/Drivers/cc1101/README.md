@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/cc1101/README.md`](../../../../docs/cc1101/README.md).
+
 # CC1101 Sub-GHz Radio Driver
 
 This component provides a full driver for the Texas Instruments CC1101 low-power sub-GHz RF transceiver. It handles SPI communication, frequency configuration, modulation presets, and TX/RX operations.

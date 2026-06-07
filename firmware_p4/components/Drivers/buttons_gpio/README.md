@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/buttons_gpio/p4.md`](../../../../docs/buttons_gpio/p4.md).
+
 # GPIO Buttons Driver
 
 This component handles the physical input buttons of the Highboy device. It provides functions to initialize GPIOs and poll button states, supporting both "is pressed" (continuous) and "was pressed" (one-shot/flag) logic.

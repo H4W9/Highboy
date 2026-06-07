@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/sd_card/p4.md`](../../../../docs/sd_card/p4.md).
+
 # SD Directory Management Component
 
 Component for managing directories on SD card storage.

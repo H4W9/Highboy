@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/ui/README.md`](../../../../docs/ui/README.md).
+
 # ui_manager
 step-by-step process for adding a new screen (feature) to the HighBoy system using the ui_manager architecture.
 

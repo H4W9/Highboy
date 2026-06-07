@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/SubGhz/README.md`](../../../../docs/SubGhz/README.md).
+
 # SubGhz Application
 
 This component implements the complete Sub-GHz RF application layer: signal reception (with protocol decoding and frequency hopping), raw/encoded transmission, spectrum analysis, signal analysis, and file serialization. It sits on top of the `cc1101` driver and uses the ESP-IDF RMT peripheral for precise pulse timing.

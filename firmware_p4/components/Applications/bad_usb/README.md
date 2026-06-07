@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/bad_usb/README.md`](../../../../docs/bad_usb/README.md).
+
 # BadUSB Application
 
 This component implements a modular HID injection tool capable of emulating keyboard and mouse input to execute automated payloads. It features a 3-layer architecture that decouples script parsing, keyboard layouts, and hardware transport.

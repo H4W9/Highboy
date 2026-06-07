@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/console/README.md`](../../../../docs/console/README.md).
+
 # Console Service Component
 
 The Console Service provides an interactive command-line interface (CLI) for the TentacleOS Highboy. It allows users to manage files, configure system settings, and execute Wi-Fi attacks directly via USB Serial or UART.

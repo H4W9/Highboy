@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/ota/README.md`](../../../../docs/ota/README.md).
+
 # OTA Update Service
 
 Handles firmware updates for TentacleOS via MicroSD card. Uses A/B OTA partitions with automatic rollback and dual-chip synchronization (ESP32-P4 + ESP32-C5).

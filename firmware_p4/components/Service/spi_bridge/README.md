@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/spi_bridge/p4.md`](../../../../docs/spi_bridge/p4.md).
+
 # SPI Bridge - P4 Master
 
 This component manages the high-speed communication link between the **ESP32-P4 (Main OS)** and the **ESP32-C5 (Radio Co-processor)**.

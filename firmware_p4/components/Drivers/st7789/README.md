@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/st7789/README.md`](../../../../docs/st7789/README.md).
+
 # ST7789 Display Driver
 
 This component initializes and manages the ST7789 LCD controller using the ESP-IDF `esp_lcd` component. It handles the SPI interface configuration and the display initialization sequence.

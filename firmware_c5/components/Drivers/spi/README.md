@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/spi/c5.md`](../../../../docs/spi/c5.md).
+
 # SPI Bus Driver
 
 This component acts as a central manager for the SPI bus, allowing multiple devices (Display, Radio, SD Card) to share the same SPI host safely and efficiently.

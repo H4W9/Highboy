@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/dns_server/README.md`](../../../../docs/dns_server/README.md).
+
 # DNS Server Service Component
 
 This component implements a lightweight DNS server optimized for "Evil Twin" and Captive Portal applications. It intercepts all DNS queries and responds authoritatively with the device's own IP address, effectively redirecting all traffic to the local web server.

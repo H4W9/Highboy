@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/host_link/c5.md`](../../../../docs/host_link/c5.md).
+
 # Host Link — C5 (BLE relay + log tee)
 
 The companion app's **BLE transport terminates on the ESP32-C5** (it owns the BLE

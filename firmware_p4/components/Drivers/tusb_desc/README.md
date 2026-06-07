@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/tusb_desc/README.md`](../../../../docs/tusb_desc/README.md).
+
 # TinyUSB Descriptors (HID Composite)
 
 This component defines the USB descriptors required to enumerate the ESP32-P4 as a USB HID Composite Device (Keyboard + Mouse) and provides the initialization routine for the TinyUSB driver.

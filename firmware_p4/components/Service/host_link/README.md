@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/host_link/p4.md`](../../../../docs/host_link/p4.md).
+
 # Host Link — P4 (companion app link)
 
 Terminates the companion-app protocol on the **ESP32-P4**. The P4 is the single

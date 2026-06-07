@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/storage_assets/p4.md`](../../../../docs/storage_assets/p4.md).
+
 # Storage Assets Component
 
 This component provides read-only access to a dedicated LittleFS partition for storing static application assets like images, fonts, configuration files, and other resources that are flashed with the firmware.

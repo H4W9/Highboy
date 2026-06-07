@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/storage_vfs/c5.md`](../../../../docs/storage_vfs/c5.md).
+
 # Virtual File System (VFS) - Unified Storage Abstraction
 
 The VFS system provides a unified, low-level abstraction layer for multiple storage backends, allowing applications to work with files using a consistent API regardless of the underlying storage medium (SD Card, SPIFFS, LittleFS, or RAM).

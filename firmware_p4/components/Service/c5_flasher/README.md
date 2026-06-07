@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/c5_flasher/README.md`](../../../../docs/c5_flasher/README.md).
+
 # C5 Flasher Service - P4 Master
 
 This service allows the ESP32-P4 to update the firmware of the ESP32-C5 using an embedded binary image.

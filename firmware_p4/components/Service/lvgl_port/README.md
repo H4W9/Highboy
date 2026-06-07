@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/lvgl_port/README.md`](../../../../docs/lvgl_port/README.md).
+
 # LVGL Port Component Documentation
 
 This component implements the **porting layer** required to run the **LVGL v9** graphics library on the Highboy hardware. It connects the generic LVGL engine with the specific drivers for the display (ST7789 via ESP-LCD) and input devices (GPIO Buttons).

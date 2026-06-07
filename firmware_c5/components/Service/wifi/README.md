@@ -1,3 +1,5 @@
+> 📚 Canonical/aggregated copy in the project docs hub: [`docs/wifi/c5.md`](../../../../docs/wifi/c5.md).
+
 # Wi-Fi Service Component Documentation
 
 This component manages Wi-Fi functionalities including Access Point (AP) mode, Station (STA) mode, scanning, and configuration persistence using JSON files.
