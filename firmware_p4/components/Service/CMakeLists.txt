@@ -20,6 +20,7 @@ file(GLOB_RECURSE C5_FLASHER_SRCS "c5_flasher/*.c")
 file(GLOB_RECURSE SPI_BRIDGE_SRCS "spi_bridge/*.c")
 file(GLOB_RECURSE BRIDGE_MANAGER_SRCS "bridge_manager/*.c")
 file(GLOB_RECURSE BT_SERVICE_SRCS "bluetooth/*.c")
+file(GLOB_RECURSE HOST_LINK_SRCS "host_link/*.c")
 file(GLOB_RECURSE STORAGE_API_SRCS "storage_api/*.c")
 file(GLOB_RECURSE STORAGE_VFS_SRCS "storage_vfs/*.c")
 file(GLOB_RECURSE STORAGE_ASSETS_SRCS "storage_assets/*.c")
@@ -64,6 +65,7 @@ idf_component_register(SRCS
   ${SPI_BRIDGE_SRCS}
   ${BRIDGE_MANAGER_SRCS}
   ${BT_SERVICE_SRCS}
+  ${HOST_LINK_SRCS}
 
   "ota/ota_service.c"
 
@@ -79,6 +81,7 @@ idf_component_register(SRCS
   "sd_card/include"
   "console/include"
   "spi_bridge/include"
+  "host_link/include"
   "c5_flasher/include"
   "bridge_manager/include"
   "bluetooth/include"
@@ -105,6 +108,9 @@ idf_component_register(SRCS
     argtable3
     app_update
     esp-serial-flasher
+    esp_tinyusb
+    mbedtls
+    esp_hw_support
 )
 
 # Embed C5 firmware images into Service component (used by c5_flasher).

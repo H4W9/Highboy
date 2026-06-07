@@ -37,6 +37,10 @@ CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
 CONFIG_TINYUSB_HID_COUNT=2
 CONFIG_TINYUSB_MODE_DMA=y
 
+# TinyUSB CDC-ACM — companion host link (composite alongside the HID)
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_CDC_COUNT=1
+
 # Required for sys_monitor (uxTaskGetSystemState / vTaskList)
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
@@ -47,3 +51,9 @@ CONFIG_LV_FONT_MONTSERRAT_14=y
 
 # Default log level INFO
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# HKDF for the companion host-link key derivation (disabled by default in IDF)
+CONFIG_MBEDTLS_HKDF_C=y
+
+# LVGL QR code widget — companion pairing screen renders the PSK as a QR
+CONFIG_LV_USE_QRCODE=y

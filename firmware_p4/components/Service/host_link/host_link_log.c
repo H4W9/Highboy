@@ -1,0 +1,149 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+// P4 log tee. Hooks esp_log_set_vprintf so every ESP_LOGx line is (1) still
+// printed on the local dev console via the original handler, and (2) copied
+// (ANSI stripped) into a drop-oldest ring. A worker task drains the ring and
+// forwards each line as a LOG frame with source=P4. The hook never blocks and
+// never logs, so it can't stall or recurse on the logging path.
+
+#include "host_link.h"
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+
+#define HOST_LOG_LINE_MAX    240 // bytes of stripped text kept per line
+#define HOST_LOG_QUEUE_DEPTH 24  // ring slots (drop-oldest beyond this)
+#define HOST_LOG_TASK_STK    4096
+#define HOST_LOG_TASK_PRIO   4
+
+typedef struct {
+  uint8_t level;
+  uint16_t len;
+  char text[HOST_LOG_LINE_MAX];
+} log_line_t;
+
+static QueueHandle_t s_log_queue = NULL;
+static TaskHandle_t s_log_task = NULL;
+static vprintf_like_t s_prev_vprintf = NULL;
+static volatile uint32_t s_dropped = 0;
+
+// Map the leading ESP-IDF level letter to the host-link level enum.
+static host_log_level_t level_from_letter(char c) {
+  switch (c) {
+    case 'E':
+      return HOST_LOG_LEVEL_ERROR;
+    case 'W':
+      return HOST_LOG_LEVEL_WARN;
+    case 'D':
+      return HOST_LOG_LEVEL_DEBUG;
+    case 'V':
+      return HOST_LOG_LEVEL_VERBOSE;
+    case 'I':
+    default:
+      return HOST_LOG_LEVEL_INFO;
+  }
+}
+
+// Copy src→dst dropping CSI/ANSI escape sequences (ESC '[' ... final 0x40-0x7E)
+// and trailing CR/LF. Returns the dst length.
+static uint16_t strip_ansi(const char *src, int src_len, char *dst, uint16_t dst_cap) {
+  uint16_t n = 0;
+  for (int i = 0; i < src_len && n < dst_cap; i++) {
+    char c = src[i];
+    if (c == '\033') {
+      i++; // skip '['
+      while (i + 1 < src_len && !(src[i + 1] >= '@' && src[i + 1] <= '~'))
+        i++;
+      i++; // skip the final byte of the sequence
+      continue;
+    }
+    dst[n++] = c;
+  }
+  while (n > 0 && (dst[n - 1] == '\n' || dst[n - 1] == '\r'))
+    n--;
+  return n;
+}
+
+static int log_vprintf(const char *fmt, va_list args) {
+  // 1. Preserve the local dev console with an untouched copy of the args.
+  int ret = 0;
+  if (s_prev_vprintf != NULL) {
+    va_list args_copy;
+    va_copy(args_copy, args);
+    ret = s_prev_vprintf(fmt, args_copy);
+    va_end(args_copy);
+  }
+
+  if (s_log_queue == NULL)
+    return ret;
+
+  // 2. Render and queue a stripped copy for the app (non-blocking, drop-oldest).
+  char raw[HOST_LOG_LINE_MAX * 2];
+  int raw_len = vsnprintf(raw, sizeof(raw), fmt, args);
+  if (raw_len <= 0)
+    return ret;
+  if (raw_len > (int)sizeof(raw) - 1)
+    raw_len = (int)sizeof(raw) - 1;
+
+  log_line_t line;
+  line.len = strip_ansi(raw, raw_len, line.text, sizeof(line.text));
+  if (line.len == 0)
+    return ret;
+  line.level = (uint8_t)level_from_letter(line.text[0]);
+
+  if (xQueueSend(s_log_queue, &line, 0) != pdTRUE) {
+    log_line_t discard;
+    if (xQueueReceive(s_log_queue, &discard, 0) == pdTRUE)
+      s_dropped++;
+    xQueueSend(s_log_queue, &line, 0);
+  }
+  return ret;
+}
+
+static void log_task(void *arg) {
+  (void)arg;
+  log_line_t line;
+  for (;;) {
+    if (xQueueReceive(s_log_queue, &line, portMAX_DELAY) == pdTRUE) {
+      host_link_emit_log(HOST_LOG_SRC_P4, (host_log_level_t)line.level, line.text, line.len);
+    }
+  }
+}
+
+esp_err_t host_link_log_init(void) {
+  if (s_log_queue != NULL)
+    return ESP_OK; // already installed
+
+  s_log_queue = xQueueCreate(HOST_LOG_QUEUE_DEPTH, sizeof(log_line_t));
+  if (s_log_queue == NULL)
+    return ESP_ERR_NO_MEM;
+
+  if (xTaskCreate(log_task, "hl_log", HOST_LOG_TASK_STK, NULL, HOST_LOG_TASK_PRIO, &s_log_task) !=
+      pdPASS) {
+    vQueueDelete(s_log_queue);
+    s_log_queue = NULL;
+    return ESP_FAIL;
+  }
+
+  s_prev_vprintf = esp_log_set_vprintf(log_vprintf);
+  return ESP_OK;
+}

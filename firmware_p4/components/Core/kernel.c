@@ -37,6 +37,10 @@
 #include "tos_log.h"
 #include "wifi_service.h"
 #include "console_service.h"
+#include "host_link.h"
+#include "host_link_ble.h"
+#include "host_link_state.h"
+#include "host_link_stream.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
 #include "ui_manager.h"
@@ -98,6 +102,15 @@ void kernel_init(void) {
   sys_monitor_start(false);
   wifi_service_init();
   xTaskCreate(console_task, "console_task", CONSOLE_TASK_STACK, NULL, CONSOLE_TASK_PRIO, NULL);
+
+  // Companion host link (USB CDC). Bridge must be up first (commands relay to C5).
+  host_link_state_init();  // load toggle settings before the link comes up
+  host_link_stream_init(); // streaming + heartbeat proxy state
+  host_link_init();
+  host_link_cdc_init();
+  host_link_log_init();
+  host_link_c5log_init(); // relay C5 logs (SPI_ID_SYSTEM_LOG) as source=C5 LOG frames
+  host_link_ble_init();   // BLE relay infra; advertising starts on demand
 
   vTaskDelay(pdMS_TO_TICKS(BOOT_SETTLE_MS));
 }

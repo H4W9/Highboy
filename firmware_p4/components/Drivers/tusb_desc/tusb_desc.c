@@ -20,6 +20,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "tinyusb.h"
+#include "tinyusb_default_config.h"
 
 static const char *TAG = "TUSB_DESC";
 
@@ -41,17 +42,19 @@ static const char *TAG = "TUSB_DESC";
 #define STR_IDX_MANUFACTURER 1
 #define STR_IDX_PRODUCT      2
 #define STR_IDX_SERIAL       3
+#define STR_IDX_CDC          4
 
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
 
-// Device Descriptor — USB 2.0, class defined at interface level
+// Device Descriptor — USB 2.0 composite (HID + CDC). The CDC IAD requires the
+// Miscellaneous device class so the host groups the CDC interfaces correctly.
 static const tusb_desc_device_t s_desc_device = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
-    .bDeviceClass = 0x00,
-    .bDeviceSubClass = 0x00,
-    .bDeviceProtocol = 0x00,
+    .bDeviceClass = TUSB_CLASS_MISC,
+    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor = USB_VENDOR_ID,
     .idProduct = USB_PRODUCT_ID,
@@ -68,25 +71,37 @@ static const uint8_t s_desc_hid_report[] = {
     TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_REPORT_ID_MOUSE)),
 };
 
-// Configuration Descriptor — 1 interface (HID), remote wakeup enabled
+// Configuration Descriptor — composite: HID (BadUSB) + CDC-ACM (companion link)
 static const uint8_t s_desc_configuration[] = {
-    TUD_CONFIG_DESCRIPTOR(
-        1, 1, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, USB_MAX_POWER_MA),
+    TUD_CONFIG_DESCRIPTOR(1,
+                          TUSB_DESC_ITF_NUM_TOTAL,
+                          0,
+                          CONFIG_TOTAL_LEN,
+                          TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP,
+                          USB_MAX_POWER_MA),
     TUD_HID_DESCRIPTOR(TUSB_DESC_ITF_NUM_HID,
                        0,
                        HID_ITF_PROTOCOL_KEYBOARD,
                        sizeof(s_desc_hid_report),
-                       0x81,
+                       TUSB_DESC_EP_HID_IN,
                        CFG_TUD_HID_EP_BUFSIZE,
                        USB_HID_POLL_INTERVAL_MS),
+    TUD_CDC_DESCRIPTOR(TUSB_DESC_ITF_NUM_CDC,
+                       STR_IDX_CDC,
+                       TUSB_DESC_EP_CDC_NOTIF,
+                       8,
+                       TUSB_DESC_EP_CDC_OUT,
+                       TUSB_DESC_EP_CDC_IN,
+                       64),
 };
 
 // String Descriptors
 static const char *s_string_desc_arr[] = {
-    (char[]){0x09, 0x04}, // Language ID: English (US)
-    "HighCode",           // Manufacturer
-    "BadUSB Device",      // Product
-    "123456",             // Serial Number
+    (char[]){0x09, 0x04},   // Language ID: English (US)
+    "HighCode",             // Manufacturer
+    "BadUSB Device",        // Product
+    "123456",               // Serial Number
+    "TentacleOS Companion", // CDC interface (host link)
 };
 
 #define STRING_DESC_COUNT (sizeof(s_string_desc_arr) / sizeof(s_string_desc_arr[0]))
@@ -157,10 +172,23 @@ void tud_hid_set_report_cb(uint8_t instance,
 }
 
 esp_err_t busb_init(void) {
+  // HID (BadUSB) and CDC (companion) share one TinyUSB install — whoever calls
+  // first brings the composite up; later calls are no-ops.
+  static bool s_installed = false;
+  if (s_installed) {
+    return ESP_OK;
+  }
+
   ESP_LOGI(TAG, "Initializing TinyUSB driver...");
 
-  // ESP32-P4 High Speed USB requires GPIO ISR service
+  // ESP32-P4 High Speed USB requires GPIO ISR service. It may already be up
+  // (buttons_init installs it earlier at boot), in which case the driver logs
+  // an ERROR before returning ESP_ERR_INVALID_STATE — harmless for us, so we
+  // silence the "gpio" tag around the call and treat "already installed" as OK.
+  esp_log_level_t gpio_log_level = esp_log_level_get("gpio");
+  esp_log_level_set("gpio", ESP_LOG_NONE);
   esp_err_t err = gpio_install_isr_service(0);
+  esp_log_level_set("gpio", gpio_log_level);
   if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
     ESP_LOGE(TAG, "Failed to install GPIO ISR service: %s", esp_err_to_name(err));
     return err;
@@ -171,6 +199,12 @@ esp_err_t busb_init(void) {
 
   const tinyusb_config_t tusb_cfg = {
       .port = TINYUSB_PORT_HIGH_SPEED_0,
+      .task =
+          {
+              .size = TINYUSB_DEFAULT_TASK_SIZE,
+              .priority = TINYUSB_DEFAULT_TASK_PRIO,
+              .xCoreID = TINYUSB_DEFAULT_TASK_AFFINITY,
+          },
       .descriptor =
           {
               .device = &s_desc_device,
@@ -193,6 +227,7 @@ esp_err_t busb_init(void) {
     return err;
   }
 
+  s_installed = true;
   ESP_LOGI(TAG, "TinyUSB driver installed");
   return ESP_OK;
 }

@@ -23,7 +23,17 @@ extern "C" {
 #include "esp_err.h"
 #include "tinyusb.h"
 
-#define TUSB_DESC_ITF_NUM_HID 0
+// Composite device interfaces: HID (BadUSB) + CDC-ACM (companion host link).
+// CDC uses two interfaces (comm + data), so the data interface is CDC+1.
+#define TUSB_DESC_ITF_NUM_HID   0
+#define TUSB_DESC_ITF_NUM_CDC   1 // comm; data interface = 2
+#define TUSB_DESC_ITF_NUM_TOTAL 3
+
+// Endpoint addresses
+#define TUSB_DESC_EP_HID_IN    0x81
+#define TUSB_DESC_EP_CDC_NOTIF 0x82
+#define TUSB_DESC_EP_CDC_OUT   0x03
+#define TUSB_DESC_EP_CDC_IN    0x83
 
 /**
  * @brief Initialize the TinyUSB driver with HID composite descriptors.
