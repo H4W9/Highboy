@@ -49,6 +49,16 @@ void register_system_commands(void);
  */
 void register_wifi_commands(void);
 
+/**
+ * @brief Register BadUSB commands (run, type, layout, stop, status).
+ */
+void register_badusb_commands(void);
+
+/**
+ * @brief Register host-link commands (psk, regen, status).
+ */
+void register_hostlink_commands(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -39,6 +39,8 @@ esp_err_t console_service_init(void) {
   register_system_commands();
   register_fs_commands();
   register_wifi_commands();
+  register_badusb_commands();
+  register_hostlink_commands();
 
 #if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
   ESP_LOGI(TAG, "Initializing USB Serial/JTAG Console (Native S3)");
