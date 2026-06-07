@@ -1,16 +1,16 @@
 # Documentation hub
 
-Aggregated, canonical copies of the project documentation. Each component's
-README is mirrored here; the original README in the component points back to
-its copy below. P4/C5 components that share a name are split into `p4.md` / `c5.md`.
+Aggregated, canonical copies of the project documentation, one directory per
+component. Each component's in-tree README points back to its copy here.
+Components that exist in both firmwares are split into `p4.md` / `c5.md`;
+cross-firmware features keep their overview in the directory's `README.md`.
 
-## Host link (companion app)
+## Featured
 
-- [host-link.md](host-link.md) — unified cross-firmware overview
-- [HOST_LINK_PROTOCOL.md](HOST_LINK_PROTOCOL.md) — wire protocol spec
-- [SPI_BRIDGE.md](SPI_BRIDGE.md) — P4↔C5 SPI bridge
+- [host_link/](host_link/README.md) — companion app link: overview + [protocol spec](host_link/protocol.md) + per-firmware refs
+- [spi_bridge/](spi_bridge/README.md) — P4↔C5 SPI bridge: architecture + per-firmware refs
 
-## Components
+## All components
 
 | Component | Docs |
 |-----------|------|
@@ -23,13 +23,13 @@ its copy below. P4/C5 components that share a name are split into `p4.md` / `c5.
 | `dns_server` | [README.md](dns_server/README.md)  |
 | `esp_now` | [README.md](esp_now/README.md)  |
 | `espnow_chat` | [README.md](espnow_chat/README.md)  |
-| `host_link` | [c5.md](host_link/c5.md) [p4.md](host_link/p4.md)  |
+| `host_link` | [c5.md](host_link/c5.md) [p4.md](host_link/p4.md) [protocol.md](host_link/protocol.md) [README.md](host_link/README.md)  |
 | `http_server` | [README.md](http_server/README.md)  |
 | `lvgl_port` | [README.md](lvgl_port/README.md)  |
 | `ota` | [README.md](ota/README.md)  |
 | `sd_card` | [c5.md](sd_card/c5.md) [p4.md](sd_card/p4.md)  |
 | `spi` | [c5.md](spi/c5.md) [p4.md](spi/p4.md)  |
-| `spi_bridge` | [c5.md](spi_bridge/c5.md) [p4.md](spi_bridge/p4.md)  |
+| `spi_bridge` | [c5.md](spi_bridge/c5.md) [p4.md](spi_bridge/p4.md) [README.md](spi_bridge/README.md)  |
 | `st7789` | [README.md](st7789/README.md)  |
 | `storage_api` | [c5.md](storage_api/c5.md) [p4.md](storage_api/p4.md)  |
 | `storage_assets` | [c5.md](storage_assets/c5.md) [p4.md](storage_assets/p4.md)  |

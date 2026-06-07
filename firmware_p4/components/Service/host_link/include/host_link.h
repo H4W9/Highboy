@@ -26,7 +26,7 @@ extern "C" {
 
 #include "esp_err.h"
 
-// Host-link frame envelope (see HOST_LINK_PROTOCOL.md):
+// Host-link frame envelope (see docs/host_link/protocol.md):
 //   [MAGIC 'H''B'][VER u8][FLAGS u8][COUNTER u32][LEN u16][BODY LEN][MAC 16 if FLAGS.auth]
 // BODY = [type u8][category u8][op u8][payload...]
 // Phase 1: no crypto — FLAGS.auth is 0 and no MAC is present/verified.

@@ -27,7 +27,7 @@ extern "C" {
 #include "esp_err.h"
 
 // Host-link security core (host-link internal). Implements the HMAC-SHA256/HKDF
-// envelope from HOST_LINK_PROTOCOL.md §6 over mbedTLS:
+// envelope from docs/host_link/protocol.md §6 over mbedTLS:
 //   - PSK persisted in NVS (auto-generated on first boot).
 //   - HELLO/HELLO_ACK handshake → per-direction session keys + counter reset.
 //   - Per-frame MAC verify (inbound, K_a2d) / sign (outbound, K_d2a).

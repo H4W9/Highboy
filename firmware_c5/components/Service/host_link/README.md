@@ -9,8 +9,8 @@ crypto/auth lives on the P4** — the C5 never parses companion payloads.
 
 Mirrors the proven Meshtastic/MeshCore phone-bridge pattern.
 
-- Unified cross-firmware overview: [`docs/host-link.md`](../../../../docs/host-link.md)
-- Wire format: [`docs/HOST_LINK_PROTOCOL.md`](../../../../docs/HOST_LINK_PROTOCOL.md)
+- Unified cross-firmware overview: [`docs/host_link/README.md`](../../../../docs/host_link/README.md)
+- Wire format: [`docs/host_link/protocol.md`](../../../../docs/host_link/protocol.md)
 
 This README is the **C5 component reference** (BLE relay + log tee).
 

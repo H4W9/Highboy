@@ -5,10 +5,10 @@ single cross-firmware view: how the pieces fit, who owns what, and where to look
 It deliberately does **not** repeat the per-file reference tables — those live in
 the component READMEs, and the byte-level wire format lives in the protocol spec.
 
-- Wire spec: [`HOST_LINK_PROTOCOL.md`](./HOST_LINK_PROTOCOL.md)
-- SPI bridge (P4↔C5 transport this rides on): [`SPI_BRIDGE.md`](./SPI_BRIDGE.md)
-- P4 component reference: [`firmware_p4/components/Service/host_link/README.md`](../firmware_p4/components/Service/host_link/README.md)
-- C5 component reference: [`firmware_c5/components/Service/host_link/README.md`](../firmware_c5/components/Service/host_link/README.md)
+- Wire spec: [`protocol.md`](./protocol.md)
+- SPI bridge (P4↔C5 transport this rides on): [`../spi_bridge/README.md`](../spi_bridge/README.md)
+- P4 component reference: [`p4.md`](./p4.md) · in-tree: [`firmware_p4/.../host_link/README.md`](../../firmware_p4/components/Service/host_link/README.md)
+- C5 component reference: [`c5.md`](./c5.md) · in-tree: [`firmware_c5/.../host_link/README.md`](../../firmware_c5/components/Service/host_link/README.md)
 
 ## The model
 

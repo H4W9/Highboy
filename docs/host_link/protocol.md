@@ -7,9 +7,10 @@ companion app only follows it. This document is the agreed contract — the
 identifiers (USB VID/PID, BLE UUIDs) are marked **TBD** and assigned during
 implementation; they don't affect the protocol shape.
 
-Related firmware docs:
-- `SPI_BRIDGE.md` — P4 ↔ C5 architecture overview
-- `firmware_p4/components/Service/spi_bridge/README.md` — command reference, session lifecycle, stream transport
+Related docs:
+- [`README.md`](./README.md) — unified host-link overview
+- [`../spi_bridge/README.md`](../spi_bridge/README.md) — P4 ↔ C5 architecture overview
+- `firmware_*/components/Service/spi_bridge/README.md` — command reference, session lifecycle, stream transport
 - `firmware_*/components/Service/spi_bridge/spi_protocol.h` — shared command table (`spi_id_t`)
 
 ---

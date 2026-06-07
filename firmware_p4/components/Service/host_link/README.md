@@ -9,8 +9,8 @@ behavior is exposed over **two transports** — USB CDC-ACM (P4-native) and BLE
 (terminated on the C5, relayed here). Only **one** companion session is active at
 a time.
 
-- Unified cross-firmware overview: [`docs/host-link.md`](../../../../docs/host-link.md)
-- Wire format (envelope, types, ids): [`docs/HOST_LINK_PROTOCOL.md`](../../../../docs/HOST_LINK_PROTOCOL.md)
+- Unified cross-firmware overview: [`docs/host_link/README.md`](../../../../docs/host_link/README.md)
+- Wire format (envelope, types, ids): [`docs/host_link/protocol.md`](../../../../docs/host_link/protocol.md)
 
 This README is the **P4 component reference** — the file map and P4-side wiring.
 The frame envelope, BODY types and the `SPI_CMD(cat, op)` id scheme are defined in
