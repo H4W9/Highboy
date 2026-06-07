@@ -56,6 +56,7 @@ file(GLOB_RECURSE INTERFACE_SETTINGS_UI_SRCS "ui/screens/interface_settings/*.c"
 file(GLOB_RECURSE BATTERY_SETTINGS_UI_SRCS "ui/screens/battery_settings/*.c")
 file(GLOB_RECURSE CONNECTION_SETTINGS_UI_SRCS "ui/screens/connection_settings/*.c")
 file(GLOB_RECURSE ABOUT_SETTINGS_UI_SRCS "ui/screens/about_settings/*.c")
+file(GLOB_RECURSE COMPANION_PAIRING_UI_SRCS "ui/screens/companion_pairing/*.c")
 file(GLOB_RECURSE THEME_SELECTOR_UI_SRCS "ui/screens/theme_selector/*.c")
 
 file(GLOB_RECURSE CONNECT_WIFI_UI_SRCS "ui/screens/connect_wifi/*.c")
@@ -107,6 +108,7 @@ idf_component_register(SRCS
   ${CONNECT_BLUETOOTH_UI_SRCS}
   ${CONNECT_WIFI_UI_SRCS}
   ${ABOUT_SETTINGS_UI_SRCS}
+  ${COMPANION_PAIRING_UI_SRCS}
   ${THEME_SELECTOR_UI_SRCS}
   ${MSGBOX_UI_SRCS}
   ${DROPDOWN_UI_SRCS}
@@ -138,6 +140,7 @@ idf_component_register(SRCS
   "ui/screens/connect_wifi/include"
   "ui/screens/connect_bluetooth/include"
   "ui/screens/about_settings/include"
+  "ui/screens/companion_pairing/include"
   "ui/screens/theme_selector/include"
   "ui/screens/badusb/include"
   "ui/screens/infrared/include"
