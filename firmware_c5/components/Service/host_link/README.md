@@ -5,8 +5,12 @@ radio). The C5 is a **transparent byte relay**: it ferries opaque host-link fram
 to/from the P4 over the SPI bridge and forwards its own logs up. **All
 crypto/auth lives on the P4** — the C5 never parses companion payloads.
 
-Mirrors the proven Meshtastic/MeshCore phone-bridge pattern. See the root
-`HOST_LINK_PROTOCOL.md` for the wire spec.
+Mirrors the proven Meshtastic/MeshCore phone-bridge pattern.
+
+- Unified cross-firmware overview: [`docs/host-link.md`](../../../../docs/host-link.md)
+- Wire format: [`docs/HOST_LINK_PROTOCOL.md`](../../../../docs/HOST_LINK_PROTOCOL.md)
+
+This README is the **C5 component reference** (BLE relay + log tee).
 
 ## Files
 

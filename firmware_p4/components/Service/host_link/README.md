@@ -7,21 +7,12 @@ behavior is exposed over **two transports** — USB CDC-ACM (P4-native) and BLE
 (terminated on the C5, relayed here). Only **one** companion session is active at
 a time.
 
-See the root `HOST_LINK_PROTOCOL.md` for the full wire spec.
+- Unified cross-firmware overview: [`docs/host-link.md`](../../../../docs/host-link.md)
+- Wire format (envelope, types, ids): [`docs/HOST_LINK_PROTOCOL.md`](../../../../docs/HOST_LINK_PROTOCOL.md)
 
-## Frame envelope
-
-```
-[MAGIC 'H''B'][VER u8][FLAGS u8][COUNTER u32][LEN u16][BODY (LEN bytes)][MAC 16 if FLAGS.auth]
-BODY = [type u8][category u8][op u8][payload...]
-```
-
-- Little-endian. `MAC` = HMAC-SHA256(`K_dir`, bytes `[2 .. 10+LEN)`) truncated to 16 B.
-- `COUNTER` is per-direction monotonic (replay detection).
-- BODY types: `CMD 0x01`, `RESP 0x02`, `STREAM 0x03`, `LOG 0x04`,
-  `HELLO 0x10`, `HELLO_ACK 0x11`.
-- `category`/`op` reuse `spi_protocol.h` ids via `SPI_CMD(cat, op)` — single
-  source of truth shared with the C5 and the app.
+This README is the **P4 component reference** — the file map and P4-side wiring.
+The frame envelope, BODY types and the `SPI_CMD(cat, op)` id scheme are defined in
+the wire spec; the end-to-end (app↔P4↔C5) picture is in the unified overview.
 
 ## Files
 
