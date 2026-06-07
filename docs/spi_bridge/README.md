@@ -1,4 +1,4 @@
-# TentacleOS — P4 ↔ C5 SPI Bridge
+# TentacleOS - P4 ↔ C5 SPI Bridge
 
 How the two microcontrollers in TentacleOS talk to each other.
 
@@ -22,7 +22,7 @@ TentacleOS runs on two chips with a clean split of responsibilities:
 The P4 has no native WiFi/BT radio, so every radio action (scan, connect,
 sniff, attack, mesh, …) is a **command sent to the C5** over SPI. The C5
 executes it on the radio and returns results / streams data back. Anything that
-needs the micro-SD is routed from the C5 to the P4 over this same bridge — the
+needs the micro-SD is routed from the C5 to the P4 over this same bridge - the
 C5 stores only on its internal flash (LittleFS).
 
 ```
@@ -55,7 +55,7 @@ GPIO line (**IRQ**) lets the slave signal "response ready" to the master.
 
 - **DMA** is mandatory: frames are 264 B (and stream frames 2 KB), far above the
   SPI hardware FIFO (~64 B). DMA also frees the CPU during transfers.
-- Because of DMA, **every transfer length must be a multiple of 4 bytes** — see
+- Because of DMA, **every transfer length must be a multiple of 4 bytes** - see
   the frame sizing notes below.
 
 ### 2.2 UART + control (firmware flashing only)
@@ -80,9 +80,9 @@ Every packet on the SPI bus starts with a fixed **5-byte header**:
 typedef struct {
   uint8_t sync;     // 0xAA
   uint8_t type;     // 0x01 CMD, 0x02 RESP, 0x03 STREAM
-  uint8_t category; // spi_cat_t — subsystem
+  uint8_t category; // spi_cat_t - subsystem
   uint8_t op;       // operation within the category
-  uint8_t length;   // payload bytes that follow (0–255)
+  uint8_t length;   // payload bytes that follow (0-255)
 } spi_header_t;
 ```
 
@@ -107,7 +107,7 @@ alone; `op` selects the operation within it.
 
 In C, the `SPI_ID_*` constants stay single named values (e.g.
 `SPI_ID_WIFI_SCAN = SPI_CMD(SPI_CAT_WIFI, 0x10) = 0x0110`), so call sites and
-dispatcher `case` labels are unchanged — only the wire carries the two bytes.
+dispatcher `case` labels are unchanged - only the wire carries the two bytes.
 The full command table lives in the P4 component README.
 
 ### Response status
@@ -133,7 +133,7 @@ P4 (master)                                  C5 (slave)
 ```
 
 - The P4 catches the IRQ via a **GPIO rising-edge interrupt** (ISR → semaphore),
-  so the C5 only needs a short (~10 µs) pulse — no held level, no millisecond
+  so the C5 only needs a short (~10 µs) pulse - no held level, no millisecond
   delay.
 - The C5's `bridge_task` keeps a **receive transaction always armed in hardware**
   (it queues the next RX before the current response finishes), so a command is
@@ -158,7 +158,7 @@ once. The C5 points the bridge at its result array via
 | `0xDDDD` | deauth counter |
 
 This is also how the **Packet Monitor** works: it's a counter-only sniffer mode
-that just polls the stats — it does not stream frames.
+that just polls the stats - it does not stream frames.
 
 ---
 
@@ -179,15 +179,15 @@ STREAM frame payload (after the 5-byte header, type = STREAM):
 
 - `batch_len = 0` ⇒ no data pending ⇒ the P4 backs off and polls later.
 - The P4 unpacks and dispatches **each record to its op's callback**, exactly as
-  if it had arrived in its own frame — so session/`seq`/backpressure semantics
+  if it had arrived in its own frame - so session/`seq`/backpressure semantics
   stay **per record**.
 - The command/response path is untouched (still `SPI_FRAME_SIZE`).
 
 **Throughput:** the original one-record-per-frame + 1 ms IRQ pulse capped streams
 at ~120 KB/s. Shortening the IRQ pulse (~3×) plus batching lifts the ceiling to
-roughly ~1 MB/s at 10 MHz — enough for dense-AP / targeted capture. A saturated
+roughly ~1 MB/s at 10 MHz - enough for dense-AP / targeted capture. A saturated
 data channel can still overrun it (physics on a 1-bit link), in which case
-records are **dropped and counted** (capture is never blocked) — the right tool
+records are **dropped and counted** (capture is never blocked) - the right tool
 there is a capture filter.
 
 ---
@@ -197,12 +197,12 @@ there is a capture filter.
 Streaming/long-running ops are wrapped in a **session** so the C5 never keeps
 running into the void if the P4 crashes or stops listening:
 
-1. **Session ID** — the C5 returns a random 32-bit `session_id` on START; both
+1. **Session ID** - the C5 returns a random 32-bit `session_id` on START; both
    sides track it, and stream records carry it so stale data is discarded.
-2. **Heartbeat** — the P4 sends `SPI_ID_SESSION_HEARTBEAT` every **2 s** with its
+2. **Heartbeat** - the P4 sends `SPI_ID_SESSION_HEARTBEAT` every **2 s** with its
    `last_acked_seq`. A C5 watchdog (1 s tick) kills any session whose last
    heartbeat is older than **5 s** and emits `SPI_ID_SESSION_LOST`.
-3. **Backpressure window** — each record carries `{session_id, seq}`. The C5
+3. **Backpressure window** - each record carries `{session_id, seq}`. The C5
    refuses to emit when `seq - last_acked_seq >= SPI_SESSION_WINDOW (64)`,
    preventing overflow when the radio produces faster than the bridge drains.
 
@@ -241,30 +241,30 @@ new value, forcing a re-sync.
 ## 9. Key source files
 
 **P4 (master)**
-- `components/Service/spi_bridge/` — `spi_bridge.c` (send command, stream task),
+- `components/Service/spi_bridge/` - `spi_bridge.c` (send command, stream task),
   `spi_session.c` (session/heartbeat), `spi_protocol.h` (shared contract)
-- `components/Drivers/spi_bridge_phy/` — SPI master PHY + IRQ edge ISR
-- `components/Service/bridge_manager/` — version check + C5 recovery
-- `components/Service/c5_flasher/` — `esp-serial-flasher` wrapper
+- `components/Drivers/spi_bridge_phy/` - SPI master PHY + IRQ edge ISR
+- `components/Service/bridge_manager/` - version check + C5 recovery
+- `components/Service/c5_flasher/` - `esp-serial-flasher` wrapper
 
 **C5 (slave)**
-- `components/Service/spi_bridge/` — `spi_bridge.c` (`bridge_task` routing +
+- `components/Service/spi_bridge/` - `spi_bridge.c` (`bridge_task` routing +
   always-armed RX + stream batching), `wifi_dispatcher.c`, `bt_dispatcher.c`,
   `session_manager.c`, `spi_protocol.h`
-- `components/Drivers/spi_slave/` — SPI slave driver (queued transactions)
+- `components/Drivers/spi_slave/` - SPI slave driver (queued transactions)
 
 `spi_protocol.h` is kept in sync between the two firmwares (the P4 copy is a
-superset — it has port-scan commands the C5 doesn't implement).
+superset - it has port-scan commands the C5 doesn't implement).
 
 ---
 
 ## 10. Design constraints & limits
 
-- **1-bit SPI** — dual/quad isn't wired, so the raw ceiling is the clock
+- **1-bit SPI** - dual/quad isn't wired, so the raw ceiling is the clock
   (~1.25 MB/s at 10 MHz). Higher clocks (20/40 MHz) are possible but limited by
   the SPI slave timing and trace integrity.
 - **264 B / 2 KB frames must stay 4-byte aligned** for DMA.
-- The two `spi_protocol.h` copies are maintained by hand — keep them in sync.
+- The two `spi_protocol.h` copies are maintained by hand - keep them in sync.
 - Command `op` values currently reuse the legacy single-byte ids (e.g. WiFi ops
   start at `0x10`); renumbering to `0x01`-based per category is a safe cosmetic
   follow-up.

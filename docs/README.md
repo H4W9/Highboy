@@ -7,8 +7,8 @@ cross-firmware features keep their overview in the directory's `README.md`.
 
 ## Featured
 
-- [host_link/](host_link/README.md) — companion app link: overview + [protocol spec](host_link/protocol.md) + per-firmware refs
-- [spi_bridge/](spi_bridge/README.md) — P4↔C5 SPI bridge: architecture + per-firmware refs
+- [host_link/](host_link/README.md) - companion app link: overview + [protocol spec](host_link/protocol.md) + per-firmware refs
+- [spi_bridge/](spi_bridge/README.md) - P4↔C5 SPI bridge: architecture + per-firmware refs
 
 ## All components
 

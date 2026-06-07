@@ -1,17 +1,17 @@
-# Host Link Protocol — Companion App ↔ TentacleOS
+# Host Link Protocol - Companion App ↔ TentacleOS
 
 **Status: CONFIRMED v1 (firmware-owned).**
 The **firmware is the source of truth** for the wire protocol; the desktop/web
-companion app only follows it. This document is the agreed contract — the
+companion app only follows it. This document is the agreed contract - the
 `[FW]` decisions from the original proposal are resolved below. A few hardware
 identifiers (USB VID/PID, BLE UUIDs) are marked **TBD** and assigned during
 implementation; they don't affect the protocol shape.
 
 Related docs:
-- [`README.md`](./README.md) — unified host-link overview
-- [`../spi_bridge/README.md`](../spi_bridge/README.md) — P4 ↔ C5 architecture overview
-- `firmware_*/components/Service/spi_bridge/README.md` — command reference, session lifecycle, stream transport
-- `firmware_*/components/Service/spi_bridge/spi_protocol.h` — shared command table (`spi_id_t`)
+- [`README.md`](./README.md) - unified host-link overview
+- [`../spi_bridge/README.md`](../spi_bridge/README.md) - P4 ↔ C5 architecture overview
+- `firmware_*/components/Service/spi_bridge/README.md` - command reference, session lifecycle, stream transport
+- `firmware_*/components/Service/spi_bridge/spi_protocol.h` - shared command table (`spi_id_t`)
 
 ---
 
@@ -19,14 +19,14 @@ Related docs:
 
 Let the companion app drive the device over **USB and BLE** using the **same
 command set the firmware speaks internally** (`spi_id_t` = `Category`+`Op`). We
-do not invent a parallel command protocol — the app reuses the existing
+do not invent a parallel command protocol - the app reuses the existing
 commands, stream format, and session lifecycle. The host link only adds what an
 external, untrusted connection needs that the internal SPI trace does not:
 framing, authentication, push delivery, file transfer, and log/console access.
 
 ---
 
-## 2. Architecture — Model A (P4 is the single hub) — CONFIRMED
+## 2. Architecture - Model A (P4 is the single hub) - CONFIRMED
 
 ```
                 USB  ┌─────────────┐  SPI (existing bridge)  ┌─────────────┐
@@ -53,21 +53,21 @@ pattern** (BLE-on-C5 → SPI → P4 already ships today). Two SPI ops carry opaq
 host bytes: `SPI_ID_HOST_RX` (C5→P4, inbound from app; C5 buffers, raises IRQ,
 P4 pulls via the stream path) and `SPI_ID_HOST_TX` (P4→C5, outbound to app; C5
 notifies over BLE). Host frames larger than one SPI frame are chunked by the
-firmware. The C5 never parses companion payloads — it only moves bytes; **all
+firmware. The C5 never parses companion payloads - it only moves bytes; **all
 crypto/auth is on the P4.** The app never sees this internal hop.
 
 ---
 
 ## 3. Transports
 
-### 3.1 USB — CDC-ACM (dedicated)
+### 3.1 USB - CDC-ACM (dedicated)
 - A dedicated **CDC-ACM** interface in the P4's TinyUSB composite (alongside the
   existing BadUSB HID). The raw developer console (`idf.py monitor`) stays on the
   **USB-Serial-JTAG**, so dev logs and the companion link don't collide.
 - Bidirectional, framed: app→device = `CMD`; device→app = `RESP`/`STREAM`/`LOG`.
 - **TBD:** VID/PID for auto-detect.
 
-### 3.2 BLE — GATT companion service (on the C5)
+### 3.2 BLE - GATT companion service (on the C5)
 - A GATT service with a **write** characteristic (app→device) and a **notify**
   characteristic (device→app). Frames larger than the MTU span multiple
   notifications and are reassembled by `LEN`.
@@ -96,7 +96,7 @@ either transport.
   (5 s) → `SPI_ID_SESSION_LOST`, backpressure window (64), `SPI_ID_SESSION_STOP`.
 - **Version check:** `SPI_ID_SYSTEM_VERSION`.
 
-**NOT reused:** SPI physical artifacts — fixed 264 B / 2048 B frames, 4-byte DMA
+**NOT reused:** SPI physical artifacts - fixed 264 B / 2048 B frames, 4-byte DMA
 alignment, master-poll. The host link uses variable length-prefixed frames and
 **push** delivery.
 
@@ -108,10 +108,10 @@ Every byte on the USB/BLE link is one host frame. **Little-endian.**
 
 | Offset | Size | Field | Notes |
 |-------:|-----:|-------|-------|
-| 0 | 2 | `MAGIC` | `0x48 0x42` ("HB") — frame sync / resync anchor |
+| 0 | 2 | `MAGIC` | `0x48 0x42` ("HB") - frame sync / resync anchor |
 | 2 | 1 | `VER` | host-link protocol version (separate from firmware version) |
 | 3 | 1 | `FLAGS` | bit0 = authenticated; rest reserved |
-| 4 | 4 | `COUNTER` | u32, per-direction monotonic — replay protection |
+| 4 | 4 | `COUNTER` | u32, per-direction monotonic - replay protection |
 | 8 | 2 | `LEN` | u16, length of `BODY` |
 | 10 | `LEN` | `BODY` | see below |
 | 10+LEN | 16 | `MAC` | HMAC-SHA256(`K_dir`, bytes `[2 .. 10+LEN)`) truncated to 128 bits |
@@ -147,7 +147,7 @@ Dedicated pre-auth frames (unauthenticated):
 1. App → device: `HELLO { host_ver, client_nonce[16] }`.
 2. Device → app: `HELLO_ACK { host_ver, server_nonce[16], device_id, mac_psk }`
    where `mac_psk = HMAC(PSK, client_nonce || server_nonce)` (proves the device
-   holds the PSK — mutual auth).
+   holds the PSK - mutual auth).
 3. Both derive per-direction session keys and reset counters:
    - `K_a2d = HKDF(PSK, client_nonce || server_nonce, "a2d")`
    - `K_d2a = HKDF(PSK, client_nonce || server_nonce, "d2a")`
@@ -156,11 +156,11 @@ Dedicated pre-auth frames (unauthenticated):
 
 Per-direction keys prevent reflection; fresh nonces prevent cross-session replay.
 
-### 6.2 PSK provisioning — QR/code on the P4 display
+### 6.2 PSK provisioning - QR/code on the P4 display
 First-time pairing: the user authorizes a new app; the **P4 shows a QR/code on
 its display**, the app reads it (or the user types it), and both derive the PSK.
 Works identically for USB and BLE. App-side, the PSK is stored in the OS keystore
-(Keychain / Credential Manager / libsecret) — never plaintext, never logged.
+(Keychain / Credential Manager / libsecret) - never plaintext, never logged.
 
 ### 6.3 Alignment
 OWASP 2021: A02 (HMAC-SHA256/HKDF, BLE LE Secure Connections), A07 (session keys,
@@ -244,11 +244,11 @@ app → CMD    SPI_ID_SESSION_STOP { session_id }
 
 The app has a file viewer/editor, so it can **download and write** files over
 both transports. The P4 exposes **two separate filesystems, both physically on
-the P4** — the app browses/edits each independently:
+the P4** - the app browses/edits each independently:
 
-- **Internal flash** — the `assets` / `littlefs` partitions (config, defaults,
+- **Internal flash** - the `assets` / `littlefs` partitions (config, defaults,
   captures saved to flash, …).
-- **micro-SD** — via SDMMC (`/sdcard`), the larger removable storage.
+- **micro-SD** - via SDMMC (`/sdcard`), the larger removable storage.
 
 The **path root selects the filesystem** (e.g. `/assets/…`, `/littlefs/…`,
 `/sdcard/…`); ops are sandboxed to the mounted roots (no escaping them). Large
@@ -306,7 +306,7 @@ reuse the existing version contract.
 
 ---
 
-## 14. Open hardware identifiers (TBD — don't block the protocol)
+## 14. Open hardware identifiers (TBD - don't block the protocol)
 - USB VID/PID.
 - BLE service/characteristic UUIDs, advertised name, target MTU, bonding policy.
 - Final `SPI_ID_*` op numbers for the new commands (`HOST_RX/TX`, `SYSTEM_LOG`,
@@ -327,10 +327,10 @@ Status legend: ✅ implemented (build-validated).
 1. ✅ **P4 host-link core + CDC-ACM (no crypto).** Frame envelope encode/decode +
    dispatch reusing the existing SPI dispatcher, over USB CDC.
    (`host_link.c`, `host_link_cdc.c`.) *Test:* a serial tool sends
-   `PING`/`VERSION`, gets `RESP`. — note: now requires a handshake first (phase 3).
+   `PING`/`VERSION`, gets `RESP`. - note: now requires a handshake first (phase 3).
 2. ✅ **Log tee on P4 + `LOG` frames** (`source=P4`). vprintf hook → ANSI strip →
    drop-oldest ring → worker. (`host_link_log.c`.) *Test:* app sees P4 logs.
-3. ✅ **Security envelope** — HMAC-SHA256/HKDF (mbedTLS), per-direction keys,
+3. ✅ **Security envelope** - HMAC-SHA256/HKDF (mbedTLS), per-direction keys,
    monotonic counter, `HELLO`/`HELLO_ACK` handshake, PSK in NVS, QR/hex on the P4
    display. (`host_link_sec.c`; UI `companion_pairing`; `cmd_hostlink`.) *Test:*
    unauthenticated frames rejected; paired app works; replay rejected.

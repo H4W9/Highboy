@@ -200,7 +200,7 @@ esp_err_t subghz_storage_save_raw(const char *name, const int32_t *pulses, size_
 
 ## Protocol Plugins (`protocols/`)
 
-The protocol system follows a **plugin architecture**. Each protocol is a self-contained module (e.g., `protocol_princeton.c`) that implements a common interface and is registered in a central registry. This design allows adding support for new protocols without modifying existing code — just create a new `protocol_*.c` file, implement the `subghz_protocol_t` interface, and register it in `subghz_protocol_registry.c`.
+The protocol system follows a **plugin architecture**. Each protocol is a self-contained module (e.g., `protocol_princeton.c`) that implements a common interface and is registered in a central registry. This design allows adding support for new protocols without modifying existing code - just create a new `protocol_*.c` file, implement the `subghz_protocol_t` interface, and register it in `subghz_protocol_registry.c`.
 
 ### Plugin Interface
 

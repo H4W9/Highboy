@@ -23,7 +23,7 @@ This component provides a full driver for the Texas Instruments CC1101 low-power
 
 | Preset                     | Mode    | RX Bandwidth |
 |----------------------------|---------|--------------|
-| `CC1101_PRESET_IDLE`       | Idle    | —            |
+| `CC1101_PRESET_IDLE`       | Idle    | -            |
 | `CC1101_PRESET_OOK_270KHZ`| ASK/OOK | 270 kHz     |
 | `CC1101_PRESET_OOK_650KHZ`| ASK/OOK | 650 kHz     |
 | `CC1101_PRESET_OOK_800KHZ`| ASK/OOK | 812 kHz     |

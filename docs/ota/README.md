@@ -22,10 +22,10 @@ The C5 firmware is embedded inside the P4 binary at build time. A single `.bin` 
 The system uses two app partitions (`ota_0` / `ota_1`). After OTA, the new firmware must call `esp_ota_mark_app_valid_cancel_rollback()` to confirm. If it doesn't (crash, C5 flash failure, etc.), the bootloader reverts to the previous partition on the next reboot.
 
 Scenarios:
-- **P4 crashes before confirmation** — automatic rollback to previous firmware
-- **C5 flash fails** — P4 does not confirm, rollback restores both chips
-- **C5 flash interrupted (power loss)** — C5 ROM bootloader is always accessible, P4 re-flashes on next boot
-- **Rollback after C5 was already updated** — rolled-back P4 contains old C5 binary, version mismatch triggers re-flash
+- **P4 crashes before confirmation** - automatic rollback to previous firmware
+- **C5 flash fails** - P4 does not confirm, rollback restores both chips
+- **C5 flash interrupted (power loss)** - C5 ROM bootloader is always accessible, P4 re-flashes on next boot
+- **Rollback after C5 was already updated** - rolled-back P4 contains old C5 binary, version mismatch triggers re-flash
 
 ### Partition Table
 
