@@ -90,7 +90,7 @@ list(FILTER HLE_SRC EXCLUDE REGEX ".*main\\.cpp$")        # main is for interact
 list(FILTER HLE_SRC EXCLUDE REGEX ".*lv_port.*\\.cpp$")   # lv_port needs display context
 list(FILTER HLE_SRC EXCLUDE REGEX ".*hle_kernel.*\\.cpp$") # kernel needs LVGL + bridge
 add_library(hle_shims STATIC ${HLE_SRC})
-target_include_directories(hle_shims PUBLIC ${HLE_INCLUDE_DIR})
+target_include_directories(hle_shims PUBLIC ${HLE_INCLUDE_DIR} ${P4_INCLUDES})
 target_compile_options(hle_shims PRIVATE -Wno-pmf-conversions)
 target_compile_definitions(hle_shims PRIVATE HLE_ASSETS_DIR="${HLE_ASSETS_DIR}")
 

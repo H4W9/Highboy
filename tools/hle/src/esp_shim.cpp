@@ -651,22 +651,7 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, const void *tr
 }
 esp_err_t spi_bus_remove_device(spi_device_handle_t handle) { (void)handle; return ESP_OK; }
 
-// SPI Bridge PHY stubs — placeholder only.
-// These stubs satisfy linker dependencies for P4 spi_bridge.c, but they do not
-// forward frames into the in-memory HLE bridge channel. Callers using
-// spi_bridge_send_command() will receive ESP_ERR_NOT_SUPPORTED until a proper
-// transport shim is implemented.
-extern "C" {
-esp_err_t spi_bridge_phy_init(void) { return ESP_ERR_NOT_SUPPORTED; }
-esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
-    (void)tx_data;
-    if (rx_data) memset(rx_data, 0, len);
-    return ESP_ERR_NOT_SUPPORTED;
-}
-esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms) {
-    (void)timeout_ms;
-    return ESP_ERR_NOT_SUPPORTED;
-}
+// SPI Bridge PHY — implemented after SPIBridgeChannel is declared (see below).
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // RMT (Remote Control TX/RX) — opaque-handle stubs with honest degradation
@@ -747,7 +732,6 @@ esp_err_t rmt_apply_carrier(rmt_channel_handle_t tx_chan, const rmt_carrier_conf
     if (!tx_chan || !config) return ESP_ERR_INVALID_ARG;
     return ESP_OK;
 }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SPI Bridge Channel Integration
@@ -756,6 +740,77 @@ esp_err_t rmt_apply_carrier(rmt_channel_handle_t tx_chan, const rmt_carrier_conf
 static hle::SPIBridgeChannel *s_bridge_channel = nullptr;
 
 void hle_set_bridge_channel(hle::SPIBridgeChannel *ch) { s_bridge_channel = ch; }
+hle::SPIBridgeChannel *hle_get_bridge_channel(void) { return s_bridge_channel; }
+
+// ── SPI Bridge PHY — wired to in-memory channel ────────────────────────────────
+// spi_bridge.c calls: transmit(cmd,NULL) → wait_irq → transmit(empty,resp)
+// We track the pending command across these calls.
+
+#include "spi_protocol.h"
+
+static spi_header_t s_pending_cmd_header;
+static uint8_t s_pending_cmd_payload[SPI_MAX_PAYLOAD];
+static bool s_has_pending_cmd = false;
+
+extern "C" {
+
+esp_err_t spi_bridge_phy_init(void) {
+    ESP_LOGI("SPI_PHY", "PHY init");
+    return ESP_OK;
+}
+esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
+    if (!s_bridge_channel) return ESP_ERR_INVALID_STATE;
+    const spi_header_t *hdr = reinterpret_cast<const spi_header_t *>(tx_data);
+
+    if (rx_data == nullptr) {
+        if (len < sizeof(spi_header_t)) return ESP_ERR_INVALID_ARG;
+        memcpy(&s_pending_cmd_header, hdr, sizeof(spi_header_t));
+        memset(s_pending_cmd_payload, 0, sizeof(s_pending_cmd_payload));
+        if (hdr->length > 0 && hdr->length <= SPI_MAX_PAYLOAD) {
+            memcpy(s_pending_cmd_payload, tx_data + sizeof(spi_header_t), hdr->length);
+        }
+        s_has_pending_cmd = true;
+        ESP_LOGI("SPI_PHY", "TX cmd 0x%02X len=%d", hdr->id, hdr->length);
+        s_bridge_channel->master_send_command(hdr->id, s_pending_cmd_payload, hdr->length);
+        return ESP_OK;
+    }
+
+    if (s_has_pending_cmd) {
+        uint8_t resp_id;
+        uint8_t resp_payload[SPI_MAX_PAYLOAD];
+        uint8_t resp_len = 0;
+        ESP_LOGI("SPI_PHY", "RX waiting for response");
+        bool ok = s_bridge_channel->master_receive_response(resp_id, resp_payload, resp_len, 100);
+        ESP_LOGI("SPI_PHY", "RX response ok=%d id=0x%02X len=%d", ok, resp_id, resp_len);
+        s_has_pending_cmd = false;
+
+        memset(rx_data, 0, len);
+        if (ok) {
+            spi_header_t resp_hdr;
+            resp_hdr.sync = SPI_SYNC_BYTE;
+            resp_hdr.type = SPI_TYPE_RESP;
+            resp_hdr.id = resp_id;
+            resp_hdr.length = resp_len;
+            memcpy(rx_data, &resp_hdr, sizeof(resp_hdr));
+            if (resp_len > 0) {
+                memcpy(rx_data + sizeof(resp_hdr), resp_payload, resp_len);
+            }
+        }
+        return ok ? ESP_OK : ESP_ERR_TIMEOUT;
+    }
+
+    if (rx_data) memset(rx_data, 0, len);
+    return ESP_ERR_INVALID_STATE;
+}
+esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms) {
+    if (!s_bridge_channel) return ESP_ERR_INVALID_STATE;
+    ESP_LOGI("SPI_PHY", "Wait IRQ %lu ms", timeout_ms);
+    bool ok = s_bridge_channel->master_wait_irq(timeout_ms);
+    ESP_LOGI("SPI_PHY", "IRQ result=%d", ok);
+    return ok ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
+} // extern "C"
 
 static const size_t B_FRAME = 260;
 

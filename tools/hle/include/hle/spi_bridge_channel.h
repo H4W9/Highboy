@@ -101,4 +101,5 @@ private:
 // Global bridge channel pointer for firmware shims
 extern "C" {
 void hle_set_bridge_channel(hle::SPIBridgeChannel *ch);
+hle::SPIBridgeChannel *hle_get_bridge_channel(void);
 }

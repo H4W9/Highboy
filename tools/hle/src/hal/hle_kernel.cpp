@@ -14,18 +14,13 @@ extern "C" {
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "spi_protocol.h"
 }
 
 static const char *TAG = "HLE_SHIM";
-static hle::SPIBridgeChannel *s_channel = nullptr;
-
-void hle_set_bridge_channel(void *ch) {
-    s_channel = static_cast<hle::SPIBridgeChannel *>(ch);
-    ::hle_set_bridge_channel(s_channel);
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VFS backend — mounts host tmpdir as SD card
+// Hardware init stubs (their .c files need deep ESP-IDF integration)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 extern "C" {
@@ -122,26 +117,24 @@ extern "C" {
 #include "ota_version.h"
 
 #define HLE_CMD_PING   0x01
-#define HLE_CMD_STATUS 0x02
-#define HLE_CMD_VERSION 0x03
 #define SPI_STATUS_OK          0x00
 #define SPI_STATUS_UNSUPPORTED 0x03
 
 static void c5_bridge_worker(void) {
     ESP_LOGI(TAG, "C5 bridge worker started");
-    while (s_channel) {
+    while (auto *ch = hle_get_bridge_channel()) {
         uint8_t cmd_id, payload[256], payload_len;
-        if (!s_channel->slave_wait_command(cmd_id, payload, payload_len)) break;
+        if (!ch->slave_wait_command(cmd_id, payload, payload_len)) break;
 
         switch (cmd_id) {
-        case HLE_CMD_PING: s_channel->slave_send_response(cmd_id, SPI_STATUS_OK, nullptr, 0); break;
-        case HLE_CMD_STATUS: { uint8_t s[] = {1,0,1,0,5}; s_channel->slave_send_response(cmd_id, SPI_STATUS_OK, s, 5); break; }
-        case HLE_CMD_VERSION: s_channel->slave_send_response(cmd_id, SPI_STATUS_OK,
+        case SPI_ID_SYSTEM_PING: ch->slave_send_response(cmd_id, SPI_STATUS_OK, nullptr, 0); break;
+        case SPI_ID_SYSTEM_STATUS: { uint8_t s[] = {1,0,1,0}; ch->slave_send_response(cmd_id, SPI_STATUS_OK, s, sizeof(s)); break; }
+        case SPI_ID_SYSTEM_VERSION: ch->slave_send_response(cmd_id, SPI_STATUS_OK,
             reinterpret_cast<const uint8_t *>(FIRMWARE_VERSION),
             static_cast<uint8_t>(strlen(FIRMWARE_VERSION))); break;
-        default: s_channel->slave_send_response(cmd_id, SPI_STATUS_UNSUPPORTED, nullptr, 0); break;
+        default: ch->slave_send_response(cmd_id, SPI_STATUS_UNSUPPORTED, nullptr, 0); break;
         }
-        s_channel->slave_notify_irq();
+        ch->slave_notify_irq();
     }
 }
 
@@ -156,9 +149,13 @@ extern "C" {
 extern void kernel_init(void);
 
 void hle_kernel_init(void) {
-    if (s_channel) {
-        xTaskCreate([](void *) { c5_bridge_worker(); vTaskDelete(nullptr); },
-                    "c5_bridge", 8192, nullptr, 5, nullptr);
+    if (hle_get_bridge_channel()) {
+        TaskHandle_t h = nullptr;
+        BaseType_t rc = xTaskCreate([](void *) { c5_bridge_worker(); vTaskDelete(nullptr); },
+                    "c5_bridge", 16384, nullptr, 5, &h);
+        ESP_LOGI(TAG, "Bridge worker task create: %s, handle=%p", rc == pdPASS ? "OK" : "FAIL", h);
+    } else {
+        ESP_LOGI(TAG, "No bridge channel, worker not started");
     }
 
     ESP_LOGI("MAIN", "Booting TentacleOS firmware...");
