@@ -125,21 +125,22 @@ target_include_directories(firmware_p4 SYSTEM PRIVATE ${lvgl_SOURCE_DIR} ${lvgl_
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${cjson_SOURCE_DIR})
 target_compile_options(firmware_p4 PRIVATE -Wno-implicit-function-declaration)
 
-# P4: exclude hardware drivers that need chip-specific configurations
+# P4: exclude hardware drivers that need deep external stacks
 get_target_property(_p4_srcs firmware_p4 SOURCES)
 list(FILTER _p4_srcs EXCLUDE REGEX ".*spi_bridge_phy.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*c5_flasher.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*st25r3916.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*sx1262.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*ir/.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*rfid/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*bad_usb.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*nfc/.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*SubGhz/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*LoRa/.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*/Applications/.*wifi/.*\\.c$")
+# WiFi application backends (need esp_wifi/lwIP) and their UI screens
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/Applications/wifi/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/ui/screens/wifi/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/ui/screens/connect_wifi/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*tusb.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*ys_rfid2.*hal.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/nfc/.*/nfc_crypto\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/nfc/.*/mf_desfire\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/nfc/.*/mf_ultralight\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/nfc/.*/t2t_emu\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_sdcard.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_spiffs.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_littlefs.*\\.c$")
@@ -163,15 +164,18 @@ gtest_discover_tests(hle_tests)
 
 # ── Interactive ──────────────────────────────────────────────────────────────
 if(SDL2_FOUND)
-    file(GLOB_RECURSE INTERACTIVE_SRC
+    set(INTERACTIVE_SRC
         "${HLE_SRC_DIR}/main.cpp"
         "${HLE_SRC_DIR}/hal/lv_port_disp_hle.cpp"
         "${HLE_SRC_DIR}/hal/lv_port_indev_hle.cpp"
         "${HLE_SRC_DIR}/hal/hle_kernel.cpp"
+        "${HLE_SRC_DIR}/hal/hle_stub_system.cpp"
+        "${HLE_SRC_DIR}/hal/hle_stub_ui_wifi.cpp"
+        "${HLE_SRC_DIR}/hal/hle_stub_dispatchers.cpp"
     )
     add_executable(hle_interactive EXCLUDE_FROM_ALL ${INTERACTIVE_SRC})
     target_include_directories(hle_interactive PRIVATE ${HLE_INCLUDE_DIR})
-    target_include_directories(hle_interactive SYSTEM PRIVATE ${lvgl_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
+    target_include_directories(hle_interactive SYSTEM PRIVATE ${P4_INCLUDES} ${lvgl_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
     target_compile_definitions(hle_interactive PRIVATE
         -DLV_CONF_INCLUDE_SIMPLE
         -DLV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h"

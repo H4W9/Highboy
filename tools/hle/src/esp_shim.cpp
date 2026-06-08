@@ -330,6 +330,22 @@ BaseType_t xQueueSend(QueueHandle_t queue, const void *item, TickType_t timeout)
     return pdFALSE;
 }
 
+BaseType_t xQueueSendFromISR(QueueHandle_t queue, const void *item, BaseType_t *higher_prio_woken) {
+    if (higher_prio_woken) *higher_prio_woken = pdFALSE;
+    if (!queue || !item) return pdFALSE;
+    auto *q = static_cast<QueueInfo *>(queue);
+    if (pthread_mutex_trylock(&q->mutex) != 0) return pdFALSE;
+    if (q->items.size() >= q->max_items) {
+        pthread_mutex_unlock(&q->mutex);
+        return pdFALSE;
+    }
+    std::vector<uint8_t> buf((const uint8_t *)item, (const uint8_t *)item + q->item_size);
+    q->items.push(std::move(buf));
+    pthread_cond_signal(&q->cond);
+    pthread_mutex_unlock(&q->mutex);
+    return pdTRUE;
+}
+
 BaseType_t xQueueReceive(QueueHandle_t queue, void *item, TickType_t timeout) {
     if (!queue || !item) return pdFALSE;
     auto *q = static_cast<QueueInfo *>(queue);
@@ -651,6 +667,86 @@ esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms) {
     (void)timeout_ms;
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RMT (Remote Control TX/RX) — opaque-handle stubs with honest degradation
+// ═══════════════════════════════════════════════════════════════════════════════
+namespace {
+
+struct HleRmtHandle {
+    enum class Kind { RxChannel, TxChannel } kind;
+    bool enabled = false;
+    rmt_rx_event_callbacks_t rx_cbs = {};
+    void *rx_user_data = nullptr;
+};
+
+struct HleRmtEncoder {
+    enum class Kind { Copy } kind;
+};
+
+} // namespace
+
+esp_err_t rmt_new_rx_channel(const rmt_rx_channel_config_t *config, rmt_channel_handle_t *ret_chan) {
+    if (!config || !ret_chan) return ESP_ERR_INVALID_ARG;
+    *ret_chan = new HleRmtHandle{HleRmtHandle::Kind::RxChannel};
+    return ESP_OK;
+}
+esp_err_t rmt_new_tx_channel(const rmt_tx_channel_config_t *config, rmt_channel_handle_t *ret_chan) {
+    if (!config || !ret_chan) return ESP_ERR_INVALID_ARG;
+    *ret_chan = new HleRmtHandle{HleRmtHandle::Kind::TxChannel};
+    return ESP_OK;
+}
+esp_err_t rmt_new_copy_encoder(const rmt_copy_encoder_config_t *config, rmt_encoder_handle_t *ret_encoder) {
+    if (!config || !ret_encoder) return ESP_ERR_INVALID_ARG;
+    *ret_encoder = new HleRmtEncoder{HleRmtEncoder::Kind::Copy};
+    return ESP_OK;
+}
+esp_err_t rmt_rx_register_event_callbacks(rmt_channel_handle_t rx_chan, const rmt_rx_event_callbacks_t *cbs, void *user_data) {
+    if (!rx_chan || !cbs) return ESP_ERR_INVALID_ARG;
+    auto *h = static_cast<HleRmtHandle *>(rx_chan);
+    if (h->kind != HleRmtHandle::Kind::RxChannel) return ESP_ERR_INVALID_ARG;
+    h->rx_cbs = *cbs;
+    h->rx_user_data = user_data;
+    return ESP_OK;
+}
+esp_err_t rmt_enable(rmt_channel_handle_t chan) {
+    if (!chan) return ESP_ERR_INVALID_ARG;
+    static_cast<HleRmtHandle *>(chan)->enabled = true;
+    return ESP_OK;
+}
+esp_err_t rmt_disable(rmt_channel_handle_t chan) {
+    if (!chan) return ESP_ERR_INVALID_ARG;
+    static_cast<HleRmtHandle *>(chan)->enabled = false;
+    return ESP_OK;
+}
+esp_err_t rmt_receive(rmt_channel_handle_t rx_chan, rmt_symbol_word_t *buffer, size_t buffer_size, const rmt_receive_config_t *config) {
+    if (!rx_chan || !buffer || !config) return ESP_ERR_INVALID_ARG;
+    auto *h = static_cast<HleRmtHandle *>(rx_chan);
+    if (h->kind != HleRmtHandle::Kind::RxChannel) return ESP_ERR_INVALID_ARG;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t rmt_transmit(rmt_channel_handle_t tx_chan, rmt_encoder_handle_t encoder, const void *payload, size_t payload_bytes, const rmt_transmit_config_t *config) {
+    if (!tx_chan || !encoder || !payload || !config) return ESP_ERR_INVALID_ARG;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t rmt_tx_wait_all_done(rmt_channel_handle_t tx_chan, int timeout_ms) {
+    if (!tx_chan) return ESP_ERR_INVALID_ARG;
+    return ESP_OK;
+}
+esp_err_t rmt_del_channel(rmt_channel_handle_t chan) {
+    if (!chan) return ESP_ERR_INVALID_ARG;
+    delete static_cast<HleRmtHandle *>(chan);
+    return ESP_OK;
+}
+esp_err_t rmt_del_encoder(rmt_encoder_handle_t encoder) {
+    if (!encoder) return ESP_ERR_INVALID_ARG;
+    delete static_cast<HleRmtEncoder *>(encoder);
+    return ESP_OK;
+}
+esp_err_t rmt_apply_carrier(rmt_channel_handle_t tx_chan, const rmt_carrier_config_t *config) {
+    if (!tx_chan || !config) return ESP_ERR_INVALID_ARG;
+    return ESP_OK;
+}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -727,17 +823,8 @@ esp_err_t led_strip_clear(led_strip_handle_t handle) { (void)handle; return ESP_
 esp_err_t led_strip_del(led_strip_handle_t handle) { (void)handle; return ESP_OK; }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// RMT Stubs
+// RMT (new API) stubs — implemented above
 // ═══════════════════════════════════════════════════════════════════════════════
-
-esp_err_t rmt_config(const rmt_config_t *cfg) { (void)cfg; return ESP_OK; }
-esp_err_t rmt_driver_install(int channel, int rx_buf_size, int flags) {
-    (void)channel; (void)rx_buf_size; (void)flags; return ESP_OK;
-}
-esp_err_t rmt_write_items(int channel, const void *data, int num_items, bool wait_done) {
-    (void)channel; (void)data; (void)num_items; (void)wait_done; return ESP_OK;
-}
-esp_err_t rmt_driver_uninstall(int channel) { (void)channel; return ESP_OK; }
 
 // SD card stubs
 esp_err_t sdmmc_host_init(void) { return ESP_OK; }

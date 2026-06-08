@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 #include "FreeRTOSConfig.h"
+#include "portmacro.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,9 +24,6 @@ typedef uint32_t TickType_t;
 typedef uint32_t EventBits_t;
 
 typedef uint8_t StackType_t;
-// Static allocation types — opaque placeholders sized for host emulation only.
-// HLE shims redirect static creation to dynamic allocation; these types exist
-// to satisfy sizeof() in compiled firmware code, not to match ESP-IDF ABI.
 typedef struct { union { void *opaque[8]; double _align; }; } StaticTask_t;
 typedef struct { union { void *opaque[8]; double _align; }; } StaticQueue_t;
 

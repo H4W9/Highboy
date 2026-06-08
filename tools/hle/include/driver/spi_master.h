@@ -28,6 +28,8 @@ typedef struct {
     int spics_io_num;
     int queue_size;
     int flags;
+    int cs_ena_pretrans;
+    int cs_ena_posttrans;
 } spi_device_interface_config_t;
 
 typedef struct {
