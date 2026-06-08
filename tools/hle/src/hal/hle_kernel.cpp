@@ -116,9 +116,7 @@ extern "C" {
 
 #include "ota_version.h"
 
-#define HLE_CMD_PING   0x01
-#define SPI_STATUS_OK          0x00
-#define SPI_STATUS_UNSUPPORTED 0x03
+static TaskHandle_t s_bridge_worker_handle = nullptr;
 
 static void c5_bridge_worker(void) {
     ESP_LOGI(TAG, "C5 bridge worker started");
@@ -136,6 +134,7 @@ static void c5_bridge_worker(void) {
         }
         ch->slave_notify_irq();
     }
+    ESP_LOGI(TAG, "C5 bridge worker exiting");
 }
 
 } // extern "C"
@@ -150,10 +149,9 @@ extern void kernel_init(void);
 
 void hle_kernel_init(void) {
     if (hle_get_bridge_channel()) {
-        TaskHandle_t h = nullptr;
         BaseType_t rc = xTaskCreate([](void *) { c5_bridge_worker(); vTaskDelete(nullptr); },
-                    "c5_bridge", 16384, nullptr, 5, &h);
-        ESP_LOGI(TAG, "Bridge worker task create: %s, handle=%p", rc == pdPASS ? "OK" : "FAIL", h);
+                    "c5_bridge", 16384, nullptr, 5, &s_bridge_worker_handle);
+        ESP_LOGI(TAG, "Bridge worker task create: %s, handle=%p", rc == pdPASS ? "OK" : "FAIL", s_bridge_worker_handle);
     } else {
         ESP_LOGI(TAG, "No bridge channel, worker not started");
     }
@@ -161,6 +159,15 @@ void hle_kernel_init(void) {
     ESP_LOGI("MAIN", "Booting TentacleOS firmware...");
     kernel_init();
     ESP_LOGI("MAIN", "Firmware booted — running LVGL event loop");
+}
+
+void hle_kernel_shutdown(void) {
+    auto *ch = hle_get_bridge_channel();
+    if (ch) {
+        ch->close();
+        hle_set_bridge_channel(nullptr);
+    }
+    s_bridge_worker_handle = nullptr;
 }
 
 } // extern "C"

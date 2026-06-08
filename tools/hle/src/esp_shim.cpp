@@ -748,9 +748,11 @@ hle::SPIBridgeChannel *hle_get_bridge_channel(void) { return s_bridge_channel; }
 
 #include "spi_protocol.h"
 
+static std::recursive_mutex s_phy_mutex;
 static spi_header_t s_pending_cmd_header;
 static uint8_t s_pending_cmd_payload[SPI_MAX_PAYLOAD];
 static bool s_has_pending_cmd = false;
+static uint32_t s_pending_timeout_ms = 0;
 
 extern "C" {
 
@@ -760,13 +762,16 @@ esp_err_t spi_bridge_phy_init(void) {
 }
 esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
     if (!s_bridge_channel) return ESP_ERR_INVALID_STATE;
+    std::lock_guard<std::recursive_mutex> lock(s_phy_mutex);
     const spi_header_t *hdr = reinterpret_cast<const spi_header_t *>(tx_data);
 
     if (rx_data == nullptr) {
         if (len < sizeof(spi_header_t)) return ESP_ERR_INVALID_ARG;
+        if (hdr->length > SPI_MAX_PAYLOAD) return ESP_ERR_INVALID_ARG;
+        if (len < sizeof(spi_header_t) + hdr->length) return ESP_ERR_INVALID_ARG;
         memcpy(&s_pending_cmd_header, hdr, sizeof(spi_header_t));
         memset(s_pending_cmd_payload, 0, sizeof(s_pending_cmd_payload));
-        if (hdr->length > 0 && hdr->length <= SPI_MAX_PAYLOAD) {
+        if (hdr->length > 0) {
             memcpy(s_pending_cmd_payload, tx_data + sizeof(spi_header_t), hdr->length);
         }
         s_has_pending_cmd = true;
@@ -779,13 +784,17 @@ esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size
         uint8_t resp_id;
         uint8_t resp_payload[SPI_MAX_PAYLOAD];
         uint8_t resp_len = 0;
-        ESP_LOGI("SPI_PHY", "RX waiting for response");
-        bool ok = s_bridge_channel->master_receive_response(resp_id, resp_payload, resp_len, 100);
+        ESP_LOGI("SPI_PHY", "RX waiting for response (timeout=%lu ms)", s_pending_timeout_ms);
+        bool ok = s_bridge_channel->master_receive_response(resp_id, resp_payload, resp_len,
+                                                            s_pending_timeout_ms);
         ESP_LOGI("SPI_PHY", "RX response ok=%d id=0x%02X len=%d", ok, resp_id, resp_len);
         s_has_pending_cmd = false;
 
         memset(rx_data, 0, len);
         if (ok) {
+            if (len < sizeof(spi_header_t)) return ESP_ERR_INVALID_SIZE;
+            size_t total = sizeof(spi_header_t) + resp_len;
+            if (len < total) return ESP_ERR_INVALID_SIZE;
             spi_header_t resp_hdr;
             resp_hdr.sync = SPI_SYNC_BYTE;
             resp_hdr.type = SPI_TYPE_RESP;
@@ -804,6 +813,8 @@ esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size
 }
 esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms) {
     if (!s_bridge_channel) return ESP_ERR_INVALID_STATE;
+    std::lock_guard<std::recursive_mutex> lock(s_phy_mutex);
+    s_pending_timeout_ms = timeout_ms;
     ESP_LOGI("SPI_PHY", "Wait IRQ %lu ms", timeout_ms);
     bool ok = s_bridge_channel->master_wait_irq(timeout_ms);
     ESP_LOGI("SPI_PHY", "IRQ result=%d", ok);

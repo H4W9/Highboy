@@ -1,20 +1,39 @@
 #include "hle/spi_bridge_channel.h"
 
+extern "C" {
+#include "spi_protocol.h"
+}
+
 namespace hle {
 
 SPIBridgeChannel::SPIBridgeChannel() = default;
 
 SPIBridgeChannel::~SPIBridgeChannel() {
-    slave_notify_irq(); // unblock any waiting master
+    close();
 }
 
-void SPIBridgeChannel::reset() {
-    s_has_command = false;
-    s_has_response = false;
-    s_irq_raised = false;
+void SPIBridgeChannel::close() {
+    {
+        std::lock_guard<std::mutex> lock1(s_cmd_mutex);
+        std::lock_guard<std::mutex> lock2(s_resp_mutex);
+        std::lock_guard<std::mutex> lock3(s_irq_mutex);
+        s_closed = true;
+        s_has_command = false;
+        s_has_response = false;
+        s_irq_raised = true;
+    }
     s_cmd_cv.notify_all();
     s_resp_cv.notify_all();
     s_irq_cv.notify_all();
+}
+
+void SPIBridgeChannel::reset() {
+    std::lock_guard<std::mutex> lock1(s_cmd_mutex);
+    std::lock_guard<std::mutex> lock2(s_resp_mutex);
+    std::lock_guard<std::mutex> lock3(s_irq_mutex);
+    s_has_command = false;
+    s_has_response = false;
+    s_irq_raised = false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -24,7 +43,7 @@ void SPIBridgeChannel::reset() {
 void SPIBridgeChannel::master_send_command(uint8_t cmd_id, const uint8_t *payload,
                                             uint8_t payload_len) {
     std::lock_guard<std::mutex> lock(s_cmd_mutex);
-    s_command_frame.build_header(0x01, cmd_id, payload_len);
+    s_command_frame.build_header(SPI_TYPE_CMD, cmd_id, payload_len);
     if (payload && payload_len > 0) {
         memcpy(s_command_frame.payload, payload, payload_len);
     }
@@ -35,8 +54,9 @@ void SPIBridgeChannel::master_send_command(uint8_t cmd_id, const uint8_t *payloa
 bool SPIBridgeChannel::master_receive_response(uint8_t &out_id, uint8_t *out_payload,
                                                 uint8_t &out_len, uint32_t timeout_ms) {
     std::unique_lock<std::mutex> lock(s_resp_mutex);
-    if (!s_has_response) {
-        s_resp_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms));
+    if (!s_resp_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                            [this] { return s_has_response || s_closed; })) {
+        return false;
     }
     if (!s_has_response) return false;
 
@@ -56,7 +76,7 @@ bool SPIBridgeChannel::master_receive_response(uint8_t &out_id, uint8_t *out_pay
 bool SPIBridgeChannel::slave_wait_command(uint8_t &out_cmd_id, uint8_t *out_payload,
                                            uint8_t &out_len) {
     std::unique_lock<std::mutex> lock(s_cmd_mutex);
-    s_cmd_cv.wait(lock, [this] { return s_has_command; });
+    s_cmd_cv.wait(lock, [this] { return s_has_command || s_closed; });
     if (!s_has_command) return false;
 
     out_cmd_id = s_command_frame.id;
@@ -70,8 +90,11 @@ bool SPIBridgeChannel::slave_wait_command(uint8_t &out_cmd_id, uint8_t *out_payl
 
 void SPIBridgeChannel::slave_send_response(uint8_t cmd_id, uint8_t status,
                                             const uint8_t *payload, uint8_t payload_len) {
+    if (payload_len > SPI_MAX_PAYLOAD - 1) {
+        payload_len = static_cast<uint8_t>(SPI_MAX_PAYLOAD - 1);
+    }
     std::lock_guard<std::mutex> lock(s_resp_mutex);
-    s_response_frame.build_header(0x02, cmd_id, payload_len + 1);
+    s_response_frame.build_header(SPI_TYPE_RESP, cmd_id, payload_len + 1);
     s_response_frame.payload[0] = status;
     if (payload && payload_len > 0) {
         memcpy(s_response_frame.payload + 1, payload, payload_len);
@@ -127,8 +150,9 @@ void SPIBridgeChannel::slave_notify_irq() {
 
 bool SPIBridgeChannel::master_wait_irq(uint32_t timeout_ms) {
     std::unique_lock<std::mutex> lock(s_irq_mutex);
-    if (!s_irq_raised) {
-        s_irq_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms));
+    if (!s_irq_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                           [this] { return s_irq_raised || s_closed; })) {
+        return false;
     }
     bool raised = s_irq_raised;
     s_irq_raised = false;

@@ -67,8 +67,12 @@ public:
     // ── Management ───────────────────────────────────────────────────────
 
     void reset();
+    void close();
+    bool is_closed() const { return s_closed; }
 
 private:
+    bool s_closed = false;
+
     // Master → Slave command queue
     SPIFrame s_command_frame;
     bool s_has_command = false;
