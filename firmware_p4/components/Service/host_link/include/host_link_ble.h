@@ -46,6 +46,9 @@ esp_err_t host_link_ble_stop(void);
 /** @brief True if a companion is connected over BLE. */
 bool host_link_ble_is_connected(void);
 
+/** @brief True if the companion BLE advertising is currently requested on. */
+bool host_link_ble_is_active(void);
+
 #ifdef __cplusplus
 }
 #endif

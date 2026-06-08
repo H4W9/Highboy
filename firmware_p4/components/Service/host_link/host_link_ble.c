@@ -123,6 +123,10 @@ bool host_link_ble_is_connected(void) {
   return s_was_connected;
 }
 
+bool host_link_ble_is_active(void) {
+  return s_want_ble_active;
+}
+
 static void status_task(void *pvParameters) {
   (void)pvParameters;
 
@@ -243,7 +247,12 @@ static void on_rx_stream(spi_id_t id, const uint8_t *payload, uint8_t len) {
   s_rx.next_chunk_idx++;
 
   if (s_rx.next_chunk_idx >= s_rx.total_chunks) {
-    // Feed the host-link core only if BLE owns the session; otherwise drop.
+    // Claim the session for BLE on the first inbound bytes if it is free (the
+    // HELLO that establishes the session must not be dropped to a connect-edge
+    // race). If another transport already owns it, acquire fails and we drop.
+    if (!host_link_session_owns(ble_write)) {
+      host_link_session_acquire(ble_write);
+    }
     if (host_link_session_owns(ble_write)) {
       host_link_feed(s_rx.buf, s_rx.accumulated_len);
     }

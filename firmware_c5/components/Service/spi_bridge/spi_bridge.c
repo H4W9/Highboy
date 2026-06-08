@@ -64,6 +64,8 @@ static bool s_is_wifi_sniffer_streaming = false;
 static bool s_is_bt_sniffer_streaming = false;
 static bool s_is_mesh_toradio_streaming = false;
 static bool s_is_mcore_rx_streaming = false;
+static bool s_is_host_rx_streaming = false;
+static bool s_is_system_log_streaming = false;
 static portMUX_TYPE s_stream_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_is_restart_pending = false;
 static char s_firmware_version[SPI_FW_VERSION_LEN] = "unknown";
@@ -99,6 +101,10 @@ bool spi_bridge_stream_is_enabled(spi_id_t id) {
     return s_is_mesh_toradio_streaming;
   if (id == SPI_ID_MCORE_RX_STREAM)
     return s_is_mcore_rx_streaming;
+  if (id == SPI_ID_HOST_RX)
+    return s_is_host_rx_streaming;
+  if (id == SPI_ID_SYSTEM_LOG)
+    return s_is_system_log_streaming;
   return false;
 }
 
@@ -111,6 +117,10 @@ void spi_bridge_stream_enable(spi_id_t id, bool enable) {
     s_is_mesh_toradio_streaming = enable;
   if (id == SPI_ID_MCORE_RX_STREAM)
     s_is_mcore_rx_streaming = enable;
+  if (id == SPI_ID_HOST_RX)
+    s_is_host_rx_streaming = enable;
+  if (id == SPI_ID_SYSTEM_LOG)
+    s_is_system_log_streaming = enable;
 }
 
 bool spi_bridge_stream_push(spi_id_t id, const uint8_t *data, uint8_t len) {
