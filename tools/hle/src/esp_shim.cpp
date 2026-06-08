@@ -47,6 +47,15 @@ void esp_restart(void) {
     exit(0);
 }
 
+static int hle_default_vlog(const char *fmt, va_list ap) { return vprintf(fmt, ap); }
+static vprintf_like_t s_log_vprintf = hle_default_vlog;
+
+vprintf_like_t esp_log_set_vprintf(vprintf_like_t func) {
+    vprintf_like_t previous = s_log_vprintf;
+    if (func) s_log_vprintf = func;
+    return previous;
+}
+
 uint64_t esp_timer_get_time(void) {
     auto now = std::chrono::steady_clock::now().time_since_epoch();
     return std::chrono::duration_cast<std::chrono::microseconds>(now).count();

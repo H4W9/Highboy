@@ -45,7 +45,6 @@ collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Service/*/*.
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/*.c" P4_APP)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/*/*.c" P4_APP_DEEP)
 collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications/*/*/*.c" P4_APP_DEEP2)
-# tos_log.c excluded — it hooks esp_log vprintf which is ESP-IDF-specific
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 include(FetchContent)
@@ -148,7 +147,6 @@ list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_ramfs.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*console/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*ota/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*sd_card/.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*tos_log\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*lv_port_disp\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*lv_port_indev\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*lv_port_touch\\.c$")

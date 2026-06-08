@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <cstdio>
 #include <cstring>
+#include <cerrno>
 #include <pthread.h>
 #include <unordered_set>
 #include <mutex>
@@ -39,8 +40,6 @@ esp_err_t ota_post_boot_check(void) { return ESP_OK; }
 esp_err_t console_service_init(void) { return ESP_OK; }
 esp_err_t bridge_manager_init(void) { return ESP_OK; }
 esp_err_t ys_rfid2_init(const void *cfg) { (void)cfg; return ESP_OK; }
-esp_err_t tos_log_init(void) { return ESP_OK; }
-esp_err_t tos_first_boot_setup(void) { return ESP_OK; }
 
 esp_err_t ledc_timer_config(const void *cfg) { (void)cfg; return ESP_OK; }
 esp_err_t ledc_channel_config(const void *cfg) { (void)cfg; return ESP_OK; }
@@ -110,10 +109,16 @@ void ui_ir_burst_open(void) {}
 static bool s_vfs_mounted = false;
 bool vfs_sdcard_is_mounted(void) { return s_vfs_mounted; }
 esp_err_t vfs_register_sd_backend(void) {
-    std::string dir = "/tmp/hle_sdcard";
-    mkdir(dir.c_str(), 0755);
+    std::string base = "/tmp/hle_storage";
+    std::string dir = base + "/sdcard";
+    if ((mkdir(base.c_str(), 0755) != 0 && errno != EEXIST) ||
+        (mkdir(dir.c_str(), 0755) != 0 && errno != EEXIST)) {
+        ESP_LOGE(TAG, "Failed to create HLE storage path: %s", dir.c_str());
+        s_vfs_mounted = false;
+        return ESP_FAIL;
+    }
     s_vfs_mounted = true;
-    fprintf(stderr, "I [VFS] HLE SD card mounted at %s\n", dir.c_str());
+    ESP_LOGI(TAG, "HLE SD card mounted at %s", dir.c_str());
     return ESP_OK;
 }
 esp_err_t vfs_unregister_sd_backend(void) {
@@ -216,7 +221,22 @@ void meshcore_transport_inject_tx_chunk(const uint8_t *d, uint8_t l) { (void)d; 
 UBaseType_t uxTaskGetNumberOfTasks(void) { return 1; }
 
 // ESP-IDF stubs
-const char *esp_err_to_name(int err) { (void)err; return "HLE_ERR"; }
+const char *esp_err_to_name(int err) {
+    switch (err) {
+    case ESP_OK: return "ESP_OK";
+    case ESP_FAIL: return "ESP_FAIL";
+    case ESP_ERR_NO_MEM: return "ESP_ERR_NO_MEM";
+    case ESP_ERR_INVALID_ARG: return "ESP_ERR_INVALID_ARG";
+    case ESP_ERR_INVALID_STATE: return "ESP_ERR_INVALID_STATE";
+    case ESP_ERR_INVALID_SIZE: return "ESP_ERR_INVALID_SIZE";
+    case ESP_ERR_INVALID_CRC: return "ESP_ERR_INVALID_CRC";
+    case ESP_ERR_TIMEOUT: return "ESP_ERR_TIMEOUT";
+    case ESP_ERR_NOT_SUPPORTED: return "ESP_ERR_NOT_SUPPORTED";
+    case ESP_ERR_NVS_NO_FREE_PAGES: return "ESP_ERR_NVS_NO_FREE_PAGES";
+    case ESP_ERR_NVS_NEW_VERSION_FOUND: return "ESP_ERR_NVS_NEW_VERSION_FOUND";
+    default: return "ESP_ERR_UNKNOWN";
+    }
+}
 uint32_t esp_get_free_heap_size(void) { return 8 * 1024 * 1024; }
 void spi_bus_free(int host) { (void)host; }
 esp_err_t esp_littlefs_info(const char *label, size_t *total, size_t *used) {
