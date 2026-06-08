@@ -608,6 +608,24 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, const void *tr
 }
 esp_err_t spi_bus_remove_device(spi_device_handle_t handle) { (void)handle; return ESP_OK; }
 
+// SPI Bridge PHY stubs — placeholder only.
+// These stubs satisfy linker dependencies for P4 spi_bridge.c, but they do not
+// forward frames into the in-memory HLE bridge channel. Callers using
+// spi_bridge_send_command() will receive ESP_ERR_NOT_SUPPORTED until a proper
+// transport shim is implemented.
+extern "C" {
+esp_err_t spi_bridge_phy_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
+    (void)tx_data;
+    if (rx_data) memset(rx_data, 0, len);
+    return ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms) {
+    (void)timeout_ms;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SPI Bridge Channel Integration
 // ═══════════════════════════════════════════════════════════════════════════════

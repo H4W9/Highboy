@@ -36,20 +36,11 @@ void hle_set_bridge_channel(void *ch) {
 extern "C" {
 
 esp_err_t ota_post_boot_check(void) { return ESP_OK; }
-void wifi_service_init(void) {}
 esp_err_t console_service_init(void) { return ESP_OK; }
 esp_err_t bridge_manager_init(void) { return ESP_OK; }
 esp_err_t ys_rfid2_init(const void *cfg) { (void)cfg; return ESP_OK; }
 esp_err_t tos_log_init(void) { return ESP_OK; }
 esp_err_t tos_first_boot_setup(void) { return ESP_OK; }
-
-// ── Stubs for excluded hardware-specific implementation files ───────────────
-// (bluetooth_service.c, wifi_service.c, console/cmds, etc. are excluded
-//  because they need full NimBLE/lwIP host stacks)
-
-bool wifi_service_is_active(void) { return false; }
-bool wifi_service_is_connected(void) { return false; }
-esp_err_t wifi_service_set_enabled(bool en) { (void)en; return ESP_OK; }
 
 esp_err_t ledc_timer_config(const void *cfg) { (void)cfg; return ESP_OK; }
 esp_err_t ledc_channel_config(const void *cfg) { (void)cfg; return ESP_OK; }
@@ -180,21 +171,26 @@ void _hle_vSemaphoreDelete(void *sem) {
     vSemaphoreDelete(sem);
 }
 
-// Bluetooth service init
-esp_err_t bluetooth_service_init(void) { return ESP_OK; }
-esp_err_t bluetooth_service_start(void) { return ESP_OK; }
-esp_err_t bluetooth_service_stop(void) { return ESP_OK; }
+// Dispatcher stubs — shadow C5 compiled dispatchers to prevent pulling in
+// C5 application object files (ap_scanner, beacon_spam, etc.) which have
+// unresolved ESP-IDF API dependencies. The HLE uses c5_bridge_worker instead.
+// Types from spi_protocol.h (not included — HLE shim has no firmware include path).
+typedef uint8_t spi_id_t;
+typedef uint8_t spi_status_t;
+#define SPI_STATUS_OK          0x00
+#define SPI_STATUS_UNSUPPORTED 0x03
 
-// Dispatcher stubs (dispatcher source files excluded — routing tables)
-uint8_t wifi_dispatcher_execute(uint8_t cmd, const uint8_t *p, uint8_t pl, uint8_t *rp, uint8_t *rl) {
-    (void)cmd; (void)p; (void)pl; (void)rp;
-    if (rl) *rl = 0;
-    return 0x01; // SPI_STATUS_UNSUPPORTED
+spi_status_t wifi_dispatcher_execute(spi_id_t id, const uint8_t *payload, uint8_t len,
+                                     uint8_t *out_resp_payload, uint8_t *out_resp_len) {
+    (void)id; (void)payload; (void)len; (void)out_resp_payload;
+    if (out_resp_len) *out_resp_len = 0;
+    return SPI_STATUS_UNSUPPORTED;
 }
-uint8_t bt_dispatcher_execute(uint8_t cmd, const uint8_t *p, uint8_t pl, uint8_t *rp, uint8_t *rl) {
-    (void)cmd; (void)p; (void)pl; (void)rp;
-    if (rl) *rl = 0;
-    return 0x01;
+spi_status_t bt_dispatcher_execute(spi_id_t id, const uint8_t *payload, uint8_t len,
+                                   uint8_t *out_resp_payload, uint8_t *out_resp_len) {
+    (void)id; (void)payload; (void)len; (void)out_resp_payload;
+    if (out_resp_len) *out_resp_len = 0;
+    return SPI_STATUS_UNSUPPORTED;
 }
 
 // sys_monitor needed
@@ -202,15 +198,6 @@ void uxTaskGetSystemState(void *tasks, uint32_t count, uint32_t *run_time) {
     (void)tasks; (void)count;
     if (run_time) *run_time = 0;
 }
-void bluetooth_service_scan(uint32_t timeout) { (void)timeout; }
-uint16_t bluetooth_service_get_scan_count(void) { return 0; }
-void *bluetooth_service_get_scan_result(uint16_t idx) { (void)idx; return nullptr; }
-esp_err_t bluetooth_service_connect(const uint8_t *addr, uint8_t addr_type, int (*cb)(void *event, void *arg)) {
-    (void)addr; (void)addr_type; (void)cb;
-    return ESP_OK;
-}
-void bluetooth_service_disconnect_all(void) {}
-void bluetooth_service_get_mac(uint8_t *mac) { memset(mac, 0, 6); }
 bool ble_scanner_start(void) { return false; }
 void ble_scanner_stop(void) {}
 bool ble_scanner_is_running(void) { return false; }
@@ -270,6 +257,10 @@ extern "C" void _esp_error_check_failed(int rc, const char *file, int line, cons
 
 extern "C" {
 
+#define HLE_CMD_PING   0x01
+#define HLE_CMD_STATUS 0x02
+#define HLE_CMD_VERSION 0x03
+
 static void c5_bridge_worker(void) {
     ESP_LOGI(TAG, "C5 bridge worker started");
     while (s_channel) {
@@ -277,10 +268,10 @@ static void c5_bridge_worker(void) {
         if (!s_channel->slave_wait_command(cmd_id, payload, payload_len)) break;
 
         switch (cmd_id) {
-        case 0x01: s_channel->slave_send_response(cmd_id, 0x00, nullptr, 0); break;
-        case 0x02: { uint8_t s[] = {1,0,1,0,5}; s_channel->slave_send_response(cmd_id, 0x00, s, 5); break; }
-        case 0x03:  s_channel->slave_send_response(cmd_id, 0x00, (const uint8_t*)"HLE", 3); break;
-        default:    s_channel->slave_send_response(cmd_id, 0x01, nullptr, 0); break;
+        case HLE_CMD_PING: s_channel->slave_send_response(cmd_id, SPI_STATUS_OK, nullptr, 0); break;
+        case HLE_CMD_STATUS: { uint8_t s[] = {1,0,1,0,5}; s_channel->slave_send_response(cmd_id, SPI_STATUS_OK, s, 5); break; }
+        case HLE_CMD_VERSION: s_channel->slave_send_response(cmd_id, SPI_STATUS_OK, (const uint8_t*)"HLE", 3); break;
+        default: s_channel->slave_send_response(cmd_id, SPI_STATUS_UNSUPPORTED, nullptr, 0); break;
         }
         s_channel->slave_notify_irq();
     }

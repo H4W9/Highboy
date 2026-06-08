@@ -99,8 +99,8 @@ add_library(firmware_c5 STATIC
     ${C5_CORE_SRC} ${C5_MAIN_SRC} ${C5_DRV} ${C5_DRV_DEEP} ${C5_SVC} ${C5_SVC_DEEP}
 )
 
-# Bluetooth/WiFi services need full NimBLE/lwIP host stacks (not shimmable)
-# Exclude their .c files but stub their public functions
+# C5 Bluetooth/WiFi services need full NimBLE/lwIP host stacks (not shimmable).
+# Keep excluding their .c files — P4 SPI proxy clients are compiled instead.
 get_target_property(_c5_srcs firmware_c5 SOURCES)
 list(FILTER _c5_srcs EXCLUDE REGEX ".*bluetooth_service\\.c$")
 list(FILTER _c5_srcs EXCLUDE REGEX ".*wifi_service\\.c$")
@@ -138,8 +138,8 @@ list(FILTER _p4_srcs EXCLUDE REGEX ".*bad_usb.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*nfc/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*SubGhz/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*LoRa/.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*bluetooth/.*\\.c$")
-list(FILTER _p4_srcs EXCLUDE REGEX ".*wifi/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/Applications/.*bluetooth/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/Applications/.*wifi/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*tusb.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*ys_rfid2.*hal.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*storage_vfs/vfs_sdcard.*\\.c$")
