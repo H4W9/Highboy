@@ -198,22 +198,6 @@ void uxTaskGetSystemState(void *tasks, uint32_t count, uint32_t *run_time) {
     (void)tasks; (void)count;
     if (run_time) *run_time = 0;
 }
-bool ble_scanner_start(void) { return false; }
-void ble_scanner_stop(void) {}
-bool ble_scanner_is_running(void) { return false; }
-esp_err_t ble_sniffer_start(void) { return ESP_OK; }
-void ble_sniffer_stop(void) {}
-void ble_sniffer_bind_session(uint32_t id) { (void)id; }
-void ble_sniffer_session_killed(uint32_t op_id) { (void)op_id; }
-esp_err_t ble_connect_flood_start(const uint8_t *addr, uint8_t addr_type) {
-    (void)addr; (void)addr_type;
-    return ESP_OK;
-}
-esp_err_t ble_connect_flood_stop(void) { return ESP_OK; }
-bool skimmer_detector_start(void) { return false; }
-void skimmer_detector_stop(void) {}
-bool tracker_detector_start(void) { return false; }
-void tracker_detector_stop(void) {}
 esp_err_t meshtastic_transport_init(void) { return ESP_OK; }
 esp_err_t meshtastic_gatt_init(uint32_t node_num) { (void)node_num; return ESP_OK; }
 void meshtastic_gatt_stop(void) {}

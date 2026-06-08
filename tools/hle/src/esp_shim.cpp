@@ -125,14 +125,17 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t func, const char *name, uint32
 }
 
 void vTaskDelete(TaskHandle_t handle) {
-    if (!handle) return;
-    std::lock_guard<std::mutex> lock(s_tasks_mutex);
-    auto it = s_tasks.find(handle);
-    if (it != s_tasks.end()) {
-        it->second.running = false;
-        s_tasks.erase(it);
+    if (!handle) {
+        pthread_exit(nullptr);
     }
-    delete static_cast<TaskInfo *>(handle);
+    auto *info = static_cast<TaskInfo *>(handle);
+    {
+        std::lock_guard<std::mutex> lock(s_tasks_mutex);
+        info->running = false;
+        s_tasks.erase(handle);
+    }
+    pthread_detach(info->thread);
+    delete info;
 }
 
 void vTaskDelay(TickType_t ticks) {
@@ -160,6 +163,15 @@ void vTaskResume(TaskHandle_t handle) {
 UBaseType_t uxTaskGetStackHighWaterMark(TaskHandle_t handle) {
     (void)handle;
     return 4096;  // enough for any shim task
+}
+
+TaskHandle_t xTaskCreateStatic(TaskFunction_t func, const char *name, uint32_t stack_depth,
+                                void *params, UBaseType_t prio, StackType_t *stack_buf,
+                                StaticTask_t *task_buf) {
+    if (!func || !stack_buf || !task_buf || stack_depth == 0) return nullptr;
+    TaskHandle_t handle = nullptr;
+    xTaskCreatePinnedToCore(func, name, stack_depth, params, prio, &handle, 0);
+    return handle;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -274,6 +286,12 @@ QueueHandle_t xQueueCreate(UBaseType_t queue_len, UBaseType_t item_size) {
     pthread_mutex_init(&q->mutex, nullptr);
     pthread_cond_init(&q->cond, nullptr);
     return q;
+}
+
+QueueHandle_t xQueueCreateStatic(UBaseType_t queue_len, UBaseType_t item_size,
+                                  uint8_t *storage, StaticQueue_t *queue_buf) {
+    if (!queue_len || !item_size || !storage || !queue_buf) return nullptr;
+    return xQueueCreate(queue_len, item_size);
 }
 
 BaseType_t xQueueSend(QueueHandle_t queue, const void *item, TickType_t timeout) {

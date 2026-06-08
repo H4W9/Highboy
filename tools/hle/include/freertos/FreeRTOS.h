@@ -22,6 +22,13 @@ typedef uint32_t UBaseType_t;
 typedef uint32_t TickType_t;
 typedef uint32_t EventBits_t;
 
+typedef uint8_t StackType_t;
+// Static allocation types — opaque placeholders sized for host emulation only.
+// HLE shims redirect static creation to dynamic allocation; these types exist
+// to satisfy sizeof() in compiled firmware code, not to match ESP-IDF ABI.
+typedef struct { union { void *opaque[8]; double _align; }; } StaticTask_t;
+typedef struct { union { void *opaque[8]; double _align; }; } StaticQueue_t;
+
 #define pdFALSE  ((BaseType_t)0)
 #define pdTRUE   ((BaseType_t)1)
 #define pdPASS   pdTRUE
@@ -46,6 +53,10 @@ void vTaskResume(TaskHandle_t handle);
 UBaseType_t uxTaskGetStackHighWaterMark(TaskHandle_t handle);
 char *pcTaskGetName(TaskHandle_t handle);
 TaskHandle_t xTaskGetCurrentTaskHandle(void);
+
+TaskHandle_t xTaskCreateStatic(TaskFunction_t func, const char *name, uint32_t stack_depth,
+                                void *params, UBaseType_t prio, StackType_t *stack_buf,
+                                StaticTask_t *task_buf);
 
 #ifdef __cplusplus
 }
