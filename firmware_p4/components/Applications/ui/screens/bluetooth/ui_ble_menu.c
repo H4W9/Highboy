@@ -34,6 +34,7 @@ typedef struct {
 } ui_ble_menu_item_t;
 
 static const ui_ble_menu_item_t MENU_ITEMS[] = {
+    {"Companion App", NULL, SCREEN_COMPANION_PAIRING},
     {"Device Spam", NULL, SCREEN_BLE_SPAM_SELECT},
     {"Detect Devices", NULL, -1},
     {"Beacon Spam", NULL, -1},

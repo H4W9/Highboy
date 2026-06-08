@@ -39,7 +39,6 @@ static const settings_item_t ITEMS[] = {
     {"DISPLAY", "/assets/icons/display_menu_icon.bin", SCREEN_DISPLAY_SETTINGS},
     {"SOUND", NULL, SCREEN_SOUND_SETTINGS},
     {"BATTERY", "/assets/icons/battery_menu_icon.bin", SCREEN_BATTERY_SETTINGS},
-    {"PAIRING", NULL, SCREEN_COMPANION_PAIRING},
     {"ABOUT", "/assets/icons/about_menu_icon.bin", SCREEN_ABOUT_SETTINGS},
 };
 #define ITEM_COUNT (sizeof(ITEMS) / sizeof(ITEMS[0]))
