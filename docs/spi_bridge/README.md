@@ -103,6 +103,7 @@ alone; `op` selects the operation within it.
 | `SPI_CAT_LORA`    | `0x03` | (lora) |
 | `SPI_CAT_MESH`    | `0x04` | meshtastic (split BLE/WiFi transport) |
 | `SPI_CAT_MCORE`   | `0x05` | meshcore → `bt_dispatcher` |
+| `SPI_CAT_HOST`    | `0x06` | companion host-link BLE relay → `bt_dispatcher` |
 | `SPI_CAT_SESSION` | `0xFF` | inline session handlers |
 
 In C, the `SPI_ID_*` constants stay single named values (e.g.
