@@ -216,7 +216,15 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
   }
 
   if (spi_header_cmd(resp) != id) {
-    ESP_LOGW(TAG, "Response ID mismatch (req 0x%04X, resp 0x%04X)", id, spi_header_cmd(resp));
+    // A previous command timed out (e.g. a long scan) and its response arrived
+    // late, landing on this read. Reject it rather than handing the caller the
+    // wrong data; the slave has already re-armed its RX, so the next command
+    // resyncs on its own.
+    ESP_LOGW(TAG, "Response ID mismatch (req 0x%04X, resp 0x%04X), dropping", id,
+             spi_header_cmd(resp));
+    s_is_command_in_flight = false;
+    xSemaphoreGive(s_spi_mutex);
+    return ESP_ERR_INVALID_RESPONSE;
   }
 
   if (resp->length > SPI_MAX_PAYLOAD) {
