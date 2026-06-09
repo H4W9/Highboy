@@ -32,7 +32,7 @@
 
 #define HOST_LOG_LINE_MAX    240 // bytes of stripped text kept per line
 #define HOST_LOG_QUEUE_DEPTH 24  // ring slots (drop-oldest beyond this)
-#define HOST_LOG_TASK_STK    4096
+#define HOST_LOG_TASK_STK    6144 // emit -> ble_write -> SPI command chain is deep
 #define HOST_LOG_TASK_PRIO   4
 
 typedef struct {
@@ -84,6 +84,13 @@ static uint16_t strip_ansi(const char *src, int src_len, char *dst, uint16_t dst
 }
 
 static int log_vprintf(const char *fmt, va_list args) {
+  // A frame is being forwarded right now: the forward runs blocking SPI that can
+  // log (timeouts), which would re-enter this hook on the forwarder's stack
+  // (overflow) and amplify (forwarded log -> more SPI -> more timeout logs).
+  // Suppress entirely until the forward completes.
+  if (host_link_is_emitting())
+    return 0;
+
   // 1. Preserve the local dev console with an untouched copy of the args.
   int ret = 0;
   if (s_prev_vprintf != NULL) {

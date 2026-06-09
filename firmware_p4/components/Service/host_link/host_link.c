@@ -39,6 +39,7 @@ static const char *TAG = "HOST_LINK";
 
 static host_link_writer_t s_writer = NULL;
 static host_link_writer_t s_ble_writer = NULL; // identifies the BLE transport
+static volatile bool s_emitting = false;       // true while a frame is being written out
 static uint8_t s_acc[HOST_LINK_MAX_FRAME];     // reassembly accumulator
 static size_t s_acc_len = 0;
 static uint32_t s_tx_counter = 0;
@@ -103,6 +104,10 @@ bool host_link_session_owns(host_link_writer_t writer) {
 
 void host_link_reset_rx(void) {
   s_acc_len = 0;
+}
+
+bool host_link_is_emitting(void) {
+  return s_emitting;
 }
 
 void host_link_feed(const uint8_t *data, size_t len) {
@@ -327,6 +332,15 @@ static void emit_frame(uint8_t type, uint8_t category, uint8_t op, const uint8_t
     return; // never overflow the frame buffer
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
+  // Re-read the writer under the lock: a transport disconnect (session_release)
+  // can null it between the top-of-function check and the call below, which
+  // would turn the indirect call into a jump to NULL.
+  host_link_writer_t writer = s_writer;
+  if (writer == NULL) {
+    xSemaphoreGive(s_lock);
+    return;
+  }
+  s_emitting = true; // the writer runs blocking SPI that may log; gate the tee
   uint32_t counter = s_tx_counter++;
 
   frame[0] = HOST_LINK_MAGIC0;
@@ -349,7 +363,8 @@ static void emit_frame(uint8_t type, uint8_t category, uint8_t op, const uint8_t
   if (authed)
     host_link_sec_sign_outbound(frame + 2, span - 2, frame + span);
 
-  s_writer(frame, out_len);
+  writer(frame, out_len);
+  s_emitting = false;
   xSemaphoreGive(s_lock);
 }
 
