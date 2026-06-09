@@ -144,6 +144,11 @@ esp_err_t c5_log_init(void) {
     return ESP_FAIL;
   }
 
+  // NimBLE logs every GATT/GAP procedure at INFO. Besides the noise, those lines
+  // would be teed and forwarded to the companion over BLE, whose notify triggers
+  // another NimBLE "notify" log -> an infinite feedback loop. Keep only warnings+.
+  esp_log_level_set("NimBLE", ESP_LOG_WARN);
+
   spi_bridge_stream_enable(SPI_ID_SYSTEM_LOG, true);
   s_prev_vprintf = esp_log_set_vprintf(log_vprintf);
   return ESP_OK;
