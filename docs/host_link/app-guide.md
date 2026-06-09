@@ -7,7 +7,7 @@ handshake, and how to issue commands / read streams / logs / files.
 The firmware owns the protocol; the app follows it. Pair this guide with:
 
 - [`protocol.md`](./protocol.md) - the formal wire contract.
-- [`../spi_bridge/p4.md`](../spi_bridge/p4.md) - the full `category`/`op` command table.
+- [`../spi_bridge/README.md`](../spi_bridge/README.md) - the full `category`/`op` command table.
 - [`README.md`](./README.md) - cross-firmware overview.
 
 All multi-byte integers are **little-endian**.
@@ -84,7 +84,7 @@ the MAC itself), truncated to the first 16 bytes.
 | `0x11` | `HELLO_ACK` | device → app | handshake (unauthenticated) |
 
 `category`/`op` are the same ids the firmware uses internally
-(`spi_id_t = (category << 8) | op`). Full table: [`../spi_bridge/p4.md`](../spi_bridge/p4.md).
+(`spi_id_t = (category << 8) | op`). Full table: [`../spi_bridge/README.md`](../spi_bridge/README.md).
 
 ---
 
@@ -180,7 +180,7 @@ counter `5`:
 
 List results (scan tables, etc.) are pulled with the generic data pipe
 `SPI_ID_SYSTEM_DATA` (`category=0x00`, `op=0x05`): index `0xFFFF` returns the
-count, `0..N-1` returns one item. See [`../spi_bridge/p4.md`](../spi_bridge/p4.md).
+count, `0..N-1` returns one item. See [`../spi_bridge/README.md`](../spi_bridge/README.md).
 
 ---
 
