@@ -154,6 +154,12 @@ void wifi_service_init(void) {
   if (is_enabled) {
     ESP_ERROR_CHECK(esp_wifi_start());
     s_is_active = true;
+    // The C5 is dual-band: enable 2.4 GHz + 5 GHz so scans and the sniffer cover
+    // both bands. Soft-check - some builds/regions may not expose 5 GHz.
+    esp_err_t band_err = esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO);
+    if (band_err != ESP_OK) {
+      ESP_LOGW(TAG, "Could not enable dual-band (5 GHz): %s", esp_err_to_name(band_err));
+    }
     ESP_LOGI(TAG, "Wi-Fi AP started with SSID: %s", target_ssid);
   } else {
     ESP_LOGI(TAG, "Wi-Fi AP initialized but disabled by config");
@@ -629,13 +635,20 @@ event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *ev
   }
 }
 
+// 2.4 GHz (1-13) plus the common non-DFS 5 GHz channels (UNII-1 + UNII-3). DFS
+// channels (52-144) need radar detection and aren't usable for passive hopping,
+// so they're left out. esp_wifi_set_channel picks the band from the number.
+static const uint8_t HOP_CHANNELS[] = {1,   2,   3,   4,   5,   6,   7,  8,  9, 10, 11,
+                                       12,  13,  36,  40,  44,  48,  149, 153, 157, 161, 165};
+#define HOP_CHANNEL_COUNT (sizeof(HOP_CHANNELS) / sizeof(HOP_CHANNELS[0]))
+
 static void channel_hopper_task(void *pvParameters) {
-  uint8_t channel = 1;
+  size_t idx = 0;
   while (1) {
-    esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
-    channel++;
-    if (channel > MAX_WIFI_CHANNEL) {
-      channel = 1;
+    esp_wifi_set_channel(HOP_CHANNELS[idx], WIFI_SECOND_CHAN_NONE);
+    idx++;
+    if (idx >= HOP_CHANNEL_COUNT) {
+      idx = 0;
     }
     vTaskDelay(pdMS_TO_TICKS(HOPPER_DELAY_MS));
   }
