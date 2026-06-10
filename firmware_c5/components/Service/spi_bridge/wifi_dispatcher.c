@@ -45,7 +45,6 @@ static const char *TAG = "WIFI_DISPATCHER";
 #define WIFI_IP_ADDR_MAX_LEN      15
 #define WIFI_DEAUTHER_MIN_PAYLOAD 13
 #define WIFI_FLOOD_MIN_PAYLOAD    7
-#define WIFI_SNIFFER_MIN_PAYLOAD  2
 #define WIFI_ASSOC_MIN_PAYLOAD    8
 #define WIFI_DEAUTH_FRAME_MIN     8
 #define WIFI_TARGET_MIN_PAYLOAD   7
@@ -313,14 +312,19 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
     }
 
     case SPI_ID_WIFI_APP_SNIFFER: {
-      if (len < WIFI_SNIFFER_MIN_PAYLOAD)
-        return SPI_STATUS_ERROR;
+      // The companion app's live view wants raw frames across every channel. If
+      // it omits the args, default to RAW + channel 0 (hopping) instead of
+      // rejecting, so an empty START still streams something useful.
+      // payload[0]: sniffer type, payload[1]: channel (0 = hop all).
       // payload[2] (optional): monitor_mode flag — when set, buffer recycles
       // on overflow and packet counter keeps growing (used by Packet Monitor).
+      wifi_sniffer_type_t type =
+          (len >= 1) ? (wifi_sniffer_type_t)payload[0] : WIFI_SNIFFER_TYPE_RAW;
+      uint8_t channel = (len >= 2) ? payload[1] : 0;
       bool monitor_mode = (len >= 3) && (payload[2] != 0);
       wifi_sniffer_set_monitor_mode(monitor_mode);
       spi_bridge_stream_enable(SPI_ID_WIFI_APP_SNIFFER, true);
-      if (!wifi_sniffer_start((wifi_sniffer_type_t)payload[0], payload[1])) {
+      if (!wifi_sniffer_start(type, channel)) {
         spi_bridge_stream_enable(SPI_ID_WIFI_APP_SNIFFER, false);
         return SPI_STATUS_ERROR;
       }
