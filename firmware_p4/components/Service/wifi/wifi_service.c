@@ -80,6 +80,11 @@ wifi_ap_record_t *wifi_service_get_ap_record(uint16_t index) {
                               &resp,
                               (uint8_t *)&s_cached_record,
                               spi_bridge_get_timeout(SPI_ID_SYSTEM_DATA)) == ESP_OK) {
+    // Hidden networks come back with an empty SSID: show a placeholder instead
+    // of a blank row. Single point, so every consumer (console + UI) gets it.
+    if (s_cached_record.ssid[0] == '\0') {
+      strcpy((char *)s_cached_record.ssid, "[rede oculta]");
+    }
     return &s_cached_record;
   }
   return NULL;
