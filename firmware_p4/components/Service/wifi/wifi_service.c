@@ -80,6 +80,16 @@ wifi_ap_record_t *wifi_service_get_ap_record(uint16_t index) {
                               &resp,
                               (uint8_t *)&s_cached_record,
                               spi_bridge_get_timeout(SPI_ID_SYSTEM_DATA)) == ESP_OK) {
+    // SSIDs are arbitrary bytes off the air. Non-printable / invalid-UTF-8 bytes
+    // hang LVGL's text renderer (the font only has ASCII glyphs anyway), so
+    // replace anything outside printable ASCII with '?'. Single point, so every
+    // consumer (console + UI) gets clean text.
+    for (size_t i = 0; i < sizeof(s_cached_record.ssid) && s_cached_record.ssid[i] != '\0'; i++) {
+      uint8_t c = s_cached_record.ssid[i];
+      if (c < 0x20 || c > 0x7E) {
+        s_cached_record.ssid[i] = '?';
+      }
+    }
     // Hidden networks come back with an empty SSID: show a placeholder instead
     // of a blank row. Single point, so every consumer (console + UI) gets it.
     if (s_cached_record.ssid[0] == '\0') {
