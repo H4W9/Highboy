@@ -40,6 +40,10 @@
 
 static const char *TAG = "WIFI_DISPATCHER";
 
+// Compact scan results for the companion app (SPI_ID_WIFI_APP_SCAN_AP). Built
+// from the raw scan once, then served through the generic data pipe.
+static spi_wifi_scan_record_t s_app_scan_records[WIFI_SCAN_LIST_SIZE];
+
 #define WIFI_SSID_MAX_LEN         32
 #define WIFI_PASSWORD_MAX_LEN     64
 #define WIFI_IP_ADDR_MAX_LEN      15
@@ -227,11 +231,33 @@ spi_status_t wifi_dispatcher_execute(spi_id_t id,
       wifi_service_stop_channel_hopping();
       return SPI_STATUS_OK;
 
-    case SPI_ID_WIFI_APP_SCAN_AP:
+    case SPI_ID_WIFI_APP_SCAN_AP: {
       wifi_service_scan();
-      spi_bridge_provide_results(
-          wifi_service_get_ap_record(0), wifi_service_get_ap_count(), sizeof(wifi_ap_record_t));
+      uint16_t count = wifi_service_get_ap_count();
+      if (count > WIFI_SCAN_LIST_SIZE)
+        count = WIFI_SCAN_LIST_SIZE;
+      for (uint16_t i = 0; i < count; i++) {
+        spi_wifi_scan_record_t *rec = &s_app_scan_records[i];
+        memset(rec, 0, sizeof(*rec));
+        const wifi_ap_record_t *ap = wifi_service_get_ap_record(i);
+        if (ap == NULL)
+          continue;
+        memcpy(rec->bssid, ap->bssid, sizeof(rec->bssid));
+        rec->rssi = ap->rssi;
+        rec->channel = ap->primary;
+        rec->authmode = (uint8_t)ap->authmode;
+        // Sanitize the SSID to printable ASCII so the app never has to deal with
+        // raw/invalid-UTF-8 bytes off the air. Empty stays empty (hidden network).
+        size_t j = 0;
+        for (; j < sizeof(rec->ssid) - 1 && ap->ssid[j] != '\0'; j++) {
+          uint8_t c = ap->ssid[j];
+          rec->ssid[j] = (c < 0x20 || c > 0x7E) ? '?' : c;
+        }
+        rec->ssid[j] = '\0';
+      }
+      spi_bridge_provide_results(s_app_scan_records, count, sizeof(spi_wifi_scan_record_t));
       return SPI_STATUS_OK;
+    }
 
     case SPI_ID_WIFI_APP_SCAN_CLIENT:
       if (!client_scanner_start())
