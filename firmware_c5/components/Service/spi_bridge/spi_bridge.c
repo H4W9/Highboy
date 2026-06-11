@@ -281,6 +281,7 @@ static void bridge_task(void *pvParameters) {
                                          .signal_rssi = signal_monitor_get_rssi(),
                                          .handshake_captured = wifi_sniffer_handshake_captured(),
                                          .pmkid_captured = wifi_sniffer_pmkid_captured()};
+            wifi_sniffer_fill_ext_stats(&stats);
             memcpy(resp_payload, &stats, sizeof(stats));
             resp_len = sizeof(stats);
           } else if (index == SPI_DATA_INDEX_DEAUTH_COUNT) {

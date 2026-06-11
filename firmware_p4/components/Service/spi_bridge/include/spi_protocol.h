@@ -380,9 +380,35 @@ typedef struct {
   int8_t signal_rssi;
   bool handshake_captured;
   bool pmkid_captured;
+  // Extended monitor stats (appended; older readers can ignore the tail).
+  uint32_t beacons;     // mgmt beacon frames
+  uint32_t probe_reqs;  // mgmt probe requests
+  uint32_t probe_resps; // mgmt probe responses
+  uint32_t data_frames; // data frames
+  uint32_t ctrl_frames; // control frames
+  uint32_t mgmt_frames; // all management frames
+  uint32_t pkts_2ghz;   // frames captured on 2.4 GHz
+  uint32_t pkts_5ghz;   // frames captured on 5 GHz
+  uint32_t unique_aps;  // distinct BSSIDs seen (approximate)
+  uint8_t channel;      // channel of the last captured frame
+  int8_t last_rssi;     // RSSI of the last captured frame (sniffer, not signal monitor)
 } __attribute__((packed)) spi_sniffer_stats_t;
 
 #define SPI_WIFI_SNIFFER_MAX_DATA (SPI_MAX_PAYLOAD - 4)
+
+/**
+ * @brief Compact WiFi scan result, served by SPI_ID_WIFI_APP_SCAN_AP through the
+ * generic data pipe. Fixed-size and explicit (unlike the raw wifi_ap_record_t)
+ * so the companion app parses it without depending on the IDF struct layout.
+ * ssid is sanitized printable ASCII, null-terminated, empty for hidden networks.
+ */
+typedef struct {
+  uint8_t bssid[6];   // AP MAC
+  int8_t rssi;        // signal strength, dBm
+  uint8_t channel;    // primary channel
+  uint8_t authmode;   // wifi_auth_mode_t value (0=open, 3=wpa2, 6=wpa3, ...)
+  uint8_t ssid[33];   // null-terminated, sanitized ASCII ('' = hidden)
+} __attribute__((packed)) spi_wifi_scan_record_t;
 
 /**
  * @brief WiFi sniffer stream frame.
