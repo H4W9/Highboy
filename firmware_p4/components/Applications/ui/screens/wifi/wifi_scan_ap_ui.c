@@ -54,6 +54,12 @@ static const char *TAG = "UI_WIFI_SCAN_AP";
 #define POPULATE_BATCH_SIZE 3
 #define POPULATE_TIMER_MS   20
 
+// Cap the on-device list independently of the scan buffer (WIFI_SCAN_LIST_SIZE):
+// each row is several LVGL objects and the 64 KB LVGL pool cannot render the
+// full 20 at once. The radio still scans all bands; the companion app shows the
+// complete list.
+#define MAX_DISPLAYED_APS   16
+
 /* ---- Scan task ---- */
 #define SCAN_TASK_NAME     "WifiScanAP"
 #define SCAN_TASK_STACK    4096
@@ -131,16 +137,36 @@ static void init_styles(void) {
   s_is_styles_init = true;
 }
 
+// Only the focused row scrolls its text: animating all rows at once is what
+// exhausted the LVGL heap. Item layout is [0]=icon, [1]=col -> [0]=line1,
+// [1]=line2. Scroll on focus, truncate (dots) otherwise.
+static void set_item_scroll(lv_obj_t *item, bool scroll) {
+  if (item == NULL)
+    return;
+  lv_obj_t *col = lv_obj_get_child(item, 1);
+  if (col == NULL)
+    return;
+  lv_label_long_mode_t mode = scroll ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT;
+  lv_obj_t *line1 = lv_obj_get_child(col, 0);
+  lv_obj_t *line2 = lv_obj_get_child(col, 1);
+  if (line1 != NULL)
+    lv_label_set_long_mode(line1, mode);
+  if (line2 != NULL)
+    lv_label_set_long_mode(line2, mode);
+}
+
 static void item_focus_cb(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
   lv_obj_t *item = lv_event_get_target(e);
   if (code == LV_EVENT_FOCUSED) {
     lv_obj_set_style_border_color(item, ui_theme_get_accent(), 0);
     lv_obj_set_style_border_width(item, STYLE_BORDER_W, 0);
+    set_item_scroll(item, true);
     lv_obj_scroll_to_view(item, LV_ANIM_ON);
   } else if (code == LV_EVENT_DEFOCUSED) {
     lv_obj_set_style_border_color(item, current_theme.border_inactive, 0);
     lv_obj_set_style_border_width(item, STYLE_BORDER_W_ITEM, 0);
+    set_item_scroll(item, false);
   } else if (code == LV_EVENT_KEY) {
     uint32_t key = lv_event_get_key(e);
     if (key == LV_KEY_ESC || key == LV_KEY_LEFT) {
@@ -169,7 +195,12 @@ static void screen_event_cb(lv_event_t *e) {
 }
 
 static void add_ap_item(const wifi_ap_record_t *ap) {
+  // Defensive: if LVGL runs out of its heap mid-list, create calls return NULL.
+  // Bail cleanly instead of passing NULL into lv_obj_* (which would spin forever
+  // on a garbage style count and trip the task watchdog).
   lv_obj_t *item = lv_obj_create(s_list_cont);
+  if (item == NULL)
+    return;
   lv_obj_set_size(item, lv_pct(100), ITEM_H);
   lv_obj_add_style(item, &s_style_item, 0);
   lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
@@ -177,12 +208,20 @@ static void add_ap_item(const wifi_ap_record_t *ap) {
   lv_obj_clear_flag(item, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t *icon = lv_label_create(item);
+  if (icon == NULL) {
+    lv_obj_del(item);
+    return;
+  }
   lv_label_set_text(icon, LV_SYMBOL_WIFI);
   lv_obj_set_style_text_color(icon, current_theme.text_main, 0);
   lv_obj_set_style_text_opa(icon, rssi_opa(ap->rssi), 0);
   lv_obj_set_style_margin_right(icon, ICON_MARGIN_RIGHT, 0);
 
   lv_obj_t *col = lv_obj_create(item);
+  if (col == NULL) {
+    lv_obj_del(item);
+    return;
+  }
   lv_obj_set_size(col, lv_pct(100), lv_pct(100));
   lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
@@ -192,12 +231,20 @@ static void add_ap_item(const wifi_ap_record_t *ap) {
   lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t *line1 = lv_label_create(col);
+  if (line1 == NULL) {
+    lv_obj_del(item);
+    return;
+  }
   lv_obj_set_width(line1, lv_pct(100));
   lv_label_set_text_fmt(line1, "%s  CH %d  %ddBm", (char *)ap->ssid, ap->primary, ap->rssi);
-  lv_label_set_long_mode(line1, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_label_set_long_mode(line1, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_color(line1, current_theme.text_main, 0);
 
   lv_obj_t *line2 = lv_label_create(col);
+  if (line2 == NULL) {
+    lv_obj_del(item);
+    return;
+  }
   lv_obj_set_width(line2, lv_pct(100));
   lv_label_set_text_fmt(line2,
                         "MAC %02X:%02X:%02X:%02X:%02X:%02X  %s",
@@ -208,7 +255,7 @@ static void add_ap_item(const wifi_ap_record_t *ap) {
                         ap->bssid[4],
                         ap->bssid[5],
                         authmode_to_str(ap->authmode));
-  lv_label_set_long_mode(line2, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_label_set_long_mode(line2, LV_LABEL_LONG_DOT);
 
   if (ap->authmode == WIFI_AUTH_OPEN) {
     lv_obj_set_style_text_color(line2, current_theme.border_accent, 0);
@@ -258,8 +305,8 @@ static void scan_worker_task(void *arg) {
   (void)arg;
   wifi_service_scan();
   uint16_t count = wifi_service_get_ap_count();
-  if (count > WIFI_SCAN_LIST_SIZE) {
-    count = WIFI_SCAN_LIST_SIZE;
+  if (count > MAX_DISPLAYED_APS) {
+    count = MAX_DISPLAYED_APS;
   }
 
   wifi_ap_record_t *results = NULL;
