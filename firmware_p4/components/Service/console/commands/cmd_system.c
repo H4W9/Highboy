@@ -16,6 +16,7 @@
 #include "console_service.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_console.h"
 #include "esp_heap_caps.h"
@@ -24,10 +25,51 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "c5_flasher.h"
 #include "spi_bridge.h"
 #include "spi_protocol.h"
 
 static const char *TAG = "CMD_SYSTEM";
+
+static int cmd_c5(int argc, char **argv) {
+  if (argc < 2) {
+    printf("usage: c5 <ota|rom|download|passthrough|release>\n");
+    printf("  ota          push embedded C5 image over UART (C5 must run its app)\n");
+    printf("  download     ask the running C5 to enter ROM download mode (SPI)\n");
+    printf("  rom          serial-flash a C5 already in download mode (recovery)\n");
+    printf("  passthrough  bridge host esptool <-> C5 (never returns; BACK reboots)\n");
+    printf("  release      tri-state the C5 UART lines for an external programmer\n");
+    return 1;
+  }
+  if (strcmp(argv[1], "ota") == 0) {
+    c5_flasher_init();
+    esp_err_t r = c5_flasher_update(NULL, 0);
+    printf("C5 OTA: %s\n", esp_err_to_name(r));
+    return r == ESP_OK ? 0 : 1;
+  }
+  if (strcmp(argv[1], "download") == 0) {
+    esp_err_t r = c5_flasher_enter_download();
+    printf("C5 enter-download: %s\n", esp_err_to_name(r));
+    return r == ESP_OK ? 0 : 1;
+  }
+  if (strcmp(argv[1], "rom") == 0) {
+    c5_flasher_init();
+    esp_err_t r = c5_flasher_rom_flash();
+    printf("C5 ROM flash: %s\n", esp_err_to_name(r));
+    return r == ESP_OK ? 0 : 1;
+  }
+  if (strcmp(argv[1], "passthrough") == 0) {
+    printf("Entering C5 passthrough. Reboot (or BACK) to exit.\n");
+    c5_passthrough_run(); // never returns
+    return 0;
+  }
+  if (strcmp(argv[1], "release") == 0) {
+    c5_flasher_release_uart();
+    return 0;
+  }
+  printf("unknown subcommand '%s'\n", argv[1]);
+  return 1;
+}
 
 static int cmd_free(int argc, char **argv) {
   printf("Internal RAM:\n");
@@ -144,4 +186,12 @@ void register_system_commands(void) {
       .func = &cmd_restart,
   };
   ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_restart_def));
+
+  const esp_console_cmd_t cmd_c5_def = {
+      .command = "c5",
+      .help = "C5 firmware update: ota | download | rom | passthrough | release",
+      .hint = NULL,
+      .func = &cmd_c5,
+  };
+  ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_c5_def));
 }
