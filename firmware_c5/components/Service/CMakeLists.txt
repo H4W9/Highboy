@@ -39,6 +39,7 @@ idf_component_register(SRCS
   "storage_assets/storage_assets.c"
 
   "esp_now/service_esp_now.c"
+  "ota/ota_service.c"
   ${SPI_BRIDGE_SRCS}
   ${SD_CARD_SRCS}
   ${MESHTASTIC_SRCS}
@@ -58,6 +59,7 @@ idf_component_register(SRCS
   "meshtastic/include"
   "meshcore/include"
   "host_link/include"
+  "ota/include"
 
 
 
@@ -71,6 +73,7 @@ idf_component_register(SRCS
     esp_common
     esp_netif
     esp_app_format
+    app_update
     Drivers
     Applications
     esp_http_server

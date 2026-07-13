@@ -29,6 +29,7 @@
 #include "c5_log.h"
 #include "i2c_init.h"
 #include "led_control.h"
+#include "ota_service.h"
 #include "pin_def.h"
 #include "spi_bridge.h"
 #include "storage_assets.h"
@@ -57,7 +58,8 @@ void kernel_init(void) {
   // led_rgb_init();
   bq25896_init();
   spi_bridge_slave_init();
-  c5_log_init(); // tee C5 logs to the P4 over SPI for the companion console
+  c5_log_init();      // tee C5 logs to the P4 over SPI for the companion console
+  ota_service_start(); // UART0 receiver for P4-pushed firmware (esp_ota)
 
   sys_monitor(false);
 
