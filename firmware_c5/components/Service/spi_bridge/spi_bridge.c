@@ -24,6 +24,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/task.h"
+#include "soc/lp_aon_reg.h"
+#include "soc/soc.h"
 
 #include "bt_dispatcher.h"
 #include "bluetooth_service.h"
@@ -69,6 +71,7 @@ static bool s_is_system_log_streaming = false;
 static bool s_use_irq = true; // false = POLL mode (no IRQ trace); master polls
 static portMUX_TYPE s_stream_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_is_restart_pending = false;
+static volatile bool s_is_download_pending = false;
 static char s_firmware_version[SPI_FW_VERSION_LEN] = "unknown";
 
 static void load_firmware_version(void);
@@ -159,6 +162,21 @@ void spi_bridge_notify_master(void) {
   spi_slave_driver_set_irq(1);
   esp_rom_delay_us(SPI_IRQ_PULSE_US);
   spi_slave_driver_set_irq(0);
+}
+
+static void enter_download_mode(void) {
+  ESP_LOGW(TAG, "Entering ROM serial download mode (force)");
+  // On ESP32-C5 the force-download-boot selector lives in LP_AON_SYS_CFG_REG
+  // bits 29-30. Value 0b01 = force download boot (uart/usb): the ROM bootloader
+  // skips the app and stays in the serial-download stub on USB-Serial/JTAG,
+  // listening for esptool. This is the cleanest software trigger on a board
+  // with no hardware BOOT trace (used with SPI_ID_SYSTEM_ENTER_DOWNLOAD).
+  uint32_t v = REG_READ(LP_AON_SYS_CFG_REG);
+  v &= ~(LP_AON_FORCE_DOWNLOAD_BOOT_M);
+  v |= (0x1U << LP_AON_FORCE_DOWNLOAD_BOOT_S);
+  REG_WRITE(LP_AON_SYS_CFG_REG, v);
+  vTaskDelay(pdMS_TO_TICKS(20)); // flush the log line before the reset
+  esp_restart();
 }
 
 esp_err_t spi_bridge_slave_init(void) {
@@ -259,6 +277,11 @@ static void bridge_task(void *pvParameters) {
         } else if (cmd == SPI_ID_SYSTEM_REBOOT) {
           status = SPI_STATUS_OK;
           s_is_restart_pending = true;
+        } else if (cmd == SPI_ID_SYSTEM_ENTER_DOWNLOAD) {
+          // Ack first, then reboot into ROM download mode after the response
+          // transfer completes (deferred, like reboot) so the P4 sees the OK.
+          status = SPI_STATUS_OK;
+          s_is_download_pending = true;
         } else if (cmd == SPI_ID_SYSTEM_VERSION) {
           if (strcmp(s_firmware_version, "unknown") == 0)
             load_firmware_version();
@@ -397,6 +420,9 @@ static void bridge_task(void *pvParameters) {
 
     spi_slave_driver_wait(); // wait for the response transfer to complete
 
+    if (s_is_download_pending) {
+      enter_download_mode();
+    }
     if (s_is_restart_pending) {
       vTaskDelay(pdMS_TO_TICKS(SPI_RESTART_DELAY_MS));
       esp_restart();

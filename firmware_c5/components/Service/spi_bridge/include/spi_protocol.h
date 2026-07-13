@@ -87,6 +87,8 @@ typedef enum {
   SPI_ID_SYSTEM_DATA = SPI_CMD(SPI_CAT_SYSTEM, 0x05),
   SPI_ID_SYSTEM_STREAM = SPI_CMD(SPI_CAT_SYSTEM, 0x06),
   SPI_ID_SYSTEM_LOG = SPI_CMD(SPI_CAT_SYSTEM, 0x07), // C5→P4 stream: log lines [level u8][utf-8]
+  SPI_ID_SYSTEM_ENTER_DOWNLOAD =
+      SPI_CMD(SPI_CAT_SYSTEM, 0x08), // P4→C5: reboot into ROM download mode (serial-flash recovery)
 
   // Companion file ops. P4-local host-link commands (the P4 owns flash + SD);
   // listed here only so the app and P4 share one id space. Never relayed to C5.
