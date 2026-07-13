@@ -46,6 +46,18 @@ typedef void (*spi_stream_cb_t)(spi_id_t id, const uint8_t *payload, uint8_t len
 esp_err_t spi_bridge_master_init(void);
 
 /**
+ * @brief Initialize the SPI master bridge in a specific handshake mode.
+ *
+ * spi_bridge_master_init() is the same as calling this with
+ * SPI_BRIDGE_MODE_IRQ. Use SPI_BRIDGE_MODE_POLL on boards without an IRQ trace;
+ * the C5 slave must be initialized in the matching mode.
+ *
+ * @param mode  SPI_BRIDGE_MODE_IRQ (default) or SPI_BRIDGE_MODE_POLL.
+ * @return ESP_OK on success, or an error code from the PHY driver.
+ */
+esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode);
+
+/**
  * @brief Return the timeout (ms) for a given SPI command ID.
  *
  * Returns SPI_TIMEOUT_DEFAULT_MS unless the command is in the override

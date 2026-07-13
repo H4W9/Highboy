@@ -38,6 +38,10 @@ static void IRAM_ATTR irq_handler(void *arg) {
 }
 
 esp_err_t spi_bridge_phy_init(void) {
+  return spi_bridge_phy_init_ex(true);
+}
+
+esp_err_t spi_bridge_phy_init_ex(bool setup_irq) {
   s_irq_semaphore = xSemaphoreCreateBinary();
 
   esp_err_t ret =
@@ -58,17 +62,21 @@ esp_err_t spi_bridge_phy_init(void) {
     return ret;
   }
 
-  gpio_config_t io_conf = {
-      .intr_type = GPIO_INTR_POSEDGE,
-      .pin_bit_mask = (1ULL << GPIO_BRIDGE_IRQ_PIN),
-      .mode = GPIO_MODE_INPUT,
-      .pull_down_en = 1,
-  };
-  gpio_config(&io_conf);
-  gpio_install_isr_service(0);
-  gpio_isr_handler_add(GPIO_BRIDGE_IRQ_PIN, irq_handler, NULL);
+  // POLL mode boards have no IRQ trace: skip the GPIO/ISR entirely. The master
+  // polls the bus (spi_bridge_phy_wait_irq is never called in that mode).
+  if (setup_irq) {
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_POSEDGE,
+        .pin_bit_mask = (1ULL << GPIO_BRIDGE_IRQ_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = 1,
+    };
+    gpio_config(&io_conf);
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(GPIO_BRIDGE_IRQ_PIN, irq_handler, NULL);
+  }
 
-  ESP_LOGI(TAG, "SPI bridge PHY initialized");
+  ESP_LOGI(TAG, "SPI bridge PHY initialized (%s)", setup_irq ? "IRQ" : "poll");
   return ESP_OK;
 }
 

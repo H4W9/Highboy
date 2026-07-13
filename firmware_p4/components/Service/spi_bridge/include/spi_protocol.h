@@ -41,6 +41,14 @@ extern "C" {
 typedef enum { SPI_TYPE_CMD = 0x01, SPI_TYPE_RESP = 0x02, SPI_TYPE_STREAM = 0x03 } spi_type_t;
 
 /**
+ * @brief Bridge handshake mode (physical layer only; the wire protocol is the
+ * same in both). IRQ: the C5 pulses a GPIO when a response/stream frame is
+ * armed (default; needs the IRQ trace). POLL: no IRQ line, so the P4 re-clocks
+ * the bus until the slave answers with a valid frame.
+ */
+typedef enum { SPI_BRIDGE_MODE_IRQ = 0, SPI_BRIDGE_MODE_POLL = 1 } spi_bridge_mode_t;
+
+/**
  * @brief SPI command categories (subsystems).
  *
  * Carried as the `category` byte of the frame header. The C5 routes a command

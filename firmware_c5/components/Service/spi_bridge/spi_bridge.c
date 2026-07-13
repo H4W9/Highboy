@@ -66,6 +66,7 @@ static bool s_is_mesh_toradio_streaming = false;
 static bool s_is_mcore_rx_streaming = false;
 static bool s_is_host_rx_streaming = false;
 static bool s_is_system_log_streaming = false;
+static bool s_use_irq = true; // false = POLL mode (no IRQ trace); master polls
 static portMUX_TYPE s_stream_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_is_restart_pending = false;
 static char s_firmware_version[SPI_FW_VERSION_LEN] = "unknown";
@@ -148,6 +149,10 @@ bool spi_bridge_stream_push(spi_id_t id, const uint8_t *data, uint8_t len) {
 }
 
 void spi_bridge_notify_master(void) {
+  // POLL mode has no IRQ trace: the master polls the bus, so skip the pulse.
+  if (!s_use_irq) {
+    return;
+  }
   // The P4 captures the IRQ via a GPIO rising-edge interrupt, so it only needs
   // a clean edge — not a held level. A short microsecond pulse replaces the old
   // 1 ms task delay, which dominated per-frame latency and capped stream rate.
@@ -157,6 +162,11 @@ void spi_bridge_notify_master(void) {
 }
 
 esp_err_t spi_bridge_slave_init(void) {
+  return spi_bridge_slave_init_mode(SPI_BRIDGE_MODE_IRQ);
+}
+
+esp_err_t spi_bridge_slave_init_mode(spi_bridge_mode_t mode) {
+  s_use_irq = (mode == SPI_BRIDGE_MODE_IRQ);
   esp_err_t ret = spi_slave_driver_init();
   if (ret != ESP_OK)
     return ret;

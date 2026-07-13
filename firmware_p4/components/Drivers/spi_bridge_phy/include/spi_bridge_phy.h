@@ -23,13 +23,15 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+#include <stdbool.h>
+
 #include "esp_err.h"
 #include "driver/spi_master.h"
 
 #define BRIDGE_SPI_HOST SPI2_HOST
 
 /**
- * @brief Initialize the SPI bridge physical layer.
+ * @brief Initialize the SPI bridge physical layer with the IRQ line (default).
  *
  * Configures SPI2 as master for P4-to-C5 communication and sets up
  * the IRQ GPIO interrupt.
@@ -37,6 +39,18 @@ extern "C" {
  * @return ESP_OK on success, or an error code.
  */
 esp_err_t spi_bridge_phy_init(void);
+
+/**
+ * @brief Initialize the SPI bridge physical layer, optionally without the IRQ.
+ *
+ * When setup_irq is false (POLL mode) the IRQ GPIO/ISR is not configured,
+ * because the board has no IRQ trace. The master then polls the bus instead of
+ * waiting on spi_bridge_phy_wait_irq().
+ *
+ * @param setup_irq  true to wire the IRQ interrupt, false for polled mode.
+ * @return ESP_OK on success, or an error code.
+ */
+esp_err_t spi_bridge_phy_init_ex(bool setup_irq);
 
 /**
  * @brief Perform a full-duplex SPI transaction on the bridge bus.

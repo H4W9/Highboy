@@ -37,6 +37,18 @@ extern "C" {
 esp_err_t spi_bridge_slave_init(void);
 
 /**
+ * @brief Initialize the SPI slave in a specific handshake mode.
+ *
+ * spi_bridge_slave_init() is the same as this with SPI_BRIDGE_MODE_IRQ. In
+ * SPI_BRIDGE_MODE_POLL the slave never pulses the IRQ line (the board has no
+ * IRQ trace); the P4 master must be initialized in the matching mode.
+ *
+ * @param mode  SPI_BRIDGE_MODE_IRQ (default) or SPI_BRIDGE_MODE_POLL.
+ * @return ESP_OK on success, or an error code from the SPI slave driver.
+ */
+esp_err_t spi_bridge_slave_init_mode(spi_bridge_mode_t mode);
+
+/**
  * @brief Point the bridge to a fixed-size result set in memory.
  *
  * @param source    Pointer to the result array.

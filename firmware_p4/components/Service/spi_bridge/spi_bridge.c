@@ -18,6 +18,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -36,6 +38,13 @@ static const char *TAG = "SPI_BRIDGE_P4";
 #define SPI_IRQ_WAIT_MS       100
 #define SPI_STREAM_CB_SLOTS   4
 
+// POLL-mode handshake: re-clock the bus until the slave answers. The first few
+// tries spin tight (low latency for fast commands); after that we yield so a
+// long slave op (e.g. a ~27 s WiFi scan) does not hog the CPU.
+#define SPI_POLL_FAST_TRIES 32
+#define SPI_POLL_FAST_US    150
+#define SPI_POLL_SLOW_MS    2
+
 typedef struct {
   spi_id_t id;
   spi_stream_cb_t cb;
@@ -46,9 +55,12 @@ static TaskHandle_t s_stream_task_handle = NULL;
 static volatile bool s_is_command_in_flight = false;
 static volatile bool s_bridge_alive = true;
 static stream_cb_slot_t s_stream_cbs[SPI_STREAM_CB_SLOTS] = {0};
+static spi_bridge_mode_t s_bridge_mode = SPI_BRIDGE_MODE_IRQ;
 
 static void stream_task(void *arg);
 static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_len);
+static esp_err_t recv_frame(uint8_t *tx_buf, uint8_t *rx_buf, size_t frame_size, uint16_t expect_cmd,
+                            bool match_cmd, uint32_t timeout_ms);
 static spi_stream_cb_t get_stream_cb(spi_id_t id);
 static bool has_any_stream_cb(void);
 
@@ -71,10 +83,60 @@ static esp_err_t status_to_err(spi_status_t status) {
 // Public functions
 
 esp_err_t spi_bridge_master_init(void) {
+  return spi_bridge_master_init_mode(SPI_BRIDGE_MODE_IRQ);
+}
+
+esp_err_t spi_bridge_master_init_mode(spi_bridge_mode_t mode) {
+  s_bridge_mode = mode;
   if (s_spi_mutex == NULL) {
     s_spi_mutex = xSemaphoreCreateMutex();
   }
-  return spi_bridge_phy_init();
+  return spi_bridge_phy_init_ex(mode == SPI_BRIDGE_MODE_IRQ);
+}
+
+// Read one response/stream frame from the slave into rx_buf.
+//   IRQ mode:  wait for the C5's IRQ pulse, then clock a single frame.
+//   POLL mode: re-clock the bus until a frame with a valid sync byte (and, when
+//              match_cmd, the expected category/op) comes back. While the slave
+//              is still busy it has no TX armed and reads back as junk, so we
+//              retry until it answers or the timeout elapses.
+// tx_buf is used as the (zeroed) outgoing dummy; frame_size is the transfer size.
+static esp_err_t recv_frame(uint8_t *tx_buf, uint8_t *rx_buf, size_t frame_size, uint16_t expect_cmd,
+                            bool match_cmd, uint32_t timeout_ms) {
+  memset(tx_buf, 0, frame_size);
+
+  if (s_bridge_mode == SPI_BRIDGE_MODE_IRQ) {
+    esp_err_t ret = spi_bridge_phy_wait_irq(timeout_ms);
+    if (ret != ESP_OK) {
+      return ret;
+    }
+    memset(rx_buf, 0, frame_size);
+    return spi_bridge_phy_transmit(tx_buf, rx_buf, frame_size);
+  }
+
+  // POLL mode.
+  int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+  uint32_t tries = 0;
+  do {
+    memset(rx_buf, 0, frame_size);
+    esp_err_t ret = spi_bridge_phy_transmit(tx_buf, rx_buf, frame_size);
+    if (ret != ESP_OK) {
+      return ret;
+    }
+    const spi_header_t *resp = (const spi_header_t *)rx_buf;
+    bool armed = (resp->sync == SPI_SYNC_BYTE) &&
+                 (resp->type == SPI_TYPE_RESP || resp->type == SPI_TYPE_STREAM);
+    if (armed && (!match_cmd || spi_header_cmd(resp) == expect_cmd)) {
+      return ESP_OK;
+    }
+    if (tries++ < SPI_POLL_FAST_TRIES) {
+      esp_rom_delay_us(SPI_POLL_FAST_US);
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(SPI_POLL_SLOW_MS));
+    }
+  } while (esp_timer_get_time() < deadline);
+
+  return ESP_ERR_TIMEOUT;
 }
 
 void spi_bridge_register_stream_cb(spi_id_t id, spi_stream_cb_t cb) {
@@ -182,18 +244,9 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
     return ret;
   }
 
-  ret = spi_bridge_phy_wait_irq(timeout_ms);
+  ret = recv_frame(tx_buf, rx_buf, SPI_FRAME_SIZE, id, true, timeout_ms);
   if (ret != ESP_OK) {
     ESP_LOGW(TAG, "Command 0x%04X timeout", id);
-    s_is_command_in_flight = false;
-    xSemaphoreGive(s_spi_mutex);
-    return ret;
-  }
-
-  memset(tx_buf, 0, sizeof(tx_buf));
-  memset(rx_buf, 0, sizeof(rx_buf));
-  ret = spi_bridge_phy_transmit(tx_buf, rx_buf, SPI_FRAME_SIZE);
-  if (ret != ESP_OK) {
     s_is_command_in_flight = false;
     xSemaphoreGive(s_spi_mutex);
     return ret;
@@ -298,11 +351,8 @@ static esp_err_t fetch_stream(const uint8_t **out_records, uint16_t *out_batch_l
   if (ret != ESP_OK)
     return ret;
 
-  ret = spi_bridge_phy_wait_irq(SPI_IRQ_WAIT_MS);
-  if (ret != ESP_OK)
-    return ret;
-
-  ret = spi_bridge_phy_transmit(s_stream_tx, s_stream_rx, SPI_STREAM_FRAME_SIZE);
+  // Accept either a STREAM frame (data or empty) or a RESP (error status).
+  ret = recv_frame(s_stream_tx, s_stream_rx, SPI_STREAM_FRAME_SIZE, 0, false, SPI_IRQ_WAIT_MS);
   if (ret != ESP_OK)
     return ret;
 
