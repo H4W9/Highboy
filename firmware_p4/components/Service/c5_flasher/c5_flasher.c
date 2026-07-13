@@ -17,160 +17,244 @@
 
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-#include "esp32_port.h"
-#include "esp_loader.h"
 #include "pin_def.h"
+#include "spi_bridge.h"
+#include "spi_protocol.h"
 
 static const char *TAG = "C5_FLASHER";
 
-#define FLASHER_UART      UART_NUM_1
-#define FLASHER_INIT_BAUD 115200
-#define FLASHER_FAST_BAUD 921600
-#define FLASH_BLOCK_SIZE  1024
+// Live OTA progress, polled by the UI for the progress bar.
+static volatile uint32_t s_ota_sent = 0;
+static volatile uint32_t s_ota_total = 0;
 
-// C5 flash layout (matches firmware_c5 partition table / flash_args).
-#define C5_BOOTLOADER_OFFSET 0x2000
-#define C5_PARTITION_OFFSET  0x8000
-#define C5_APP_OFFSET        0x10000
+void c5_flasher_progress(uint32_t *sent, uint32_t *total) {
+  if (sent != NULL)
+    *sent = s_ota_sent;
+  if (total != NULL)
+    *total = s_ota_total;
+}
+
+// UART1 on the P4 (GPIO_C5_UART_TX_PIN=38 TX / GPIO_C5_UART_RX_PIN=39 RX, defined
+// in pin_def.h) is wired to the C5's UART0. The C5 runs an OTA receiver task
+// there: we stream the new C5 app image and it writes it to its inactive OTA
+// slot and reboots. No ROM download mode involved.
+#define OTA_UART     UART_NUM_1
+// Must match the C5 OTA receiver. 115200 for reliable bring-up over jumpers.
+#define OTA_BAUD     115200
+#define OTA_UART_BUF 4096
+// Per-block flow control: send a block, wait for the C5 to ACK it (after the
+// flash write) before sending the next. Block size must match the C5 receiver.
+#define OTA_BLOCK            4096
+#define OTA_BLOCK_TIMEOUT_MS 5000
+// esp_ota_begin on the C5 erases the partition first; that can take seconds.
+#define OTA_BEGIN_TIMEOUT_MS 20000
+
+// Must match firmware_c5/components/Service/ota/ota_service.c.
+static const uint8_t OTA_MAGIC[4] = {0xC5, 0xFA, 0x5E, 0x01};
+#define OTA_READY 0x52
+#define OTA_ACK   0x06
+#define OTA_NAK   0x15
+
+#define OTA_SYNC_ATTEMPTS    10
+#define OTA_READY_TIMEOUT_MS 1000
+#define OTA_ACK_TIMEOUT_MS   30000
+
+// Timeout for the SPI enter-download command (the C5 acks then reboots to ROM).
+#define ENTER_DOWNLOAD_TIMEOUT_MS 500
 
 #if C5_FIRMWARE_EMBEDDED
-extern const uint8_t c5_bootloader_start[] asm("_binary_bootloader_bin_start");
-extern const uint8_t c5_bootloader_end[] asm("_binary_bootloader_bin_end");
-extern const uint8_t c5_partition_start[] asm("_binary_partition_table_bin_start");
-extern const uint8_t c5_partition_end[] asm("_binary_partition_table_bin_end");
 extern const uint8_t c5_app_start[] asm("_binary_TentacleOS_C5_bin_start");
 extern const uint8_t c5_app_end[] asm("_binary_TentacleOS_C5_bin_end");
 #endif
 
-typedef struct {
-  const char *name;
-  uint32_t offset;
-  const uint8_t *data;
-  uint32_t size;
-} c5_image_t;
-
-static esp_err_t flash_image(const c5_image_t *img);
-
 esp_err_t c5_flasher_init(void) {
-  loader_esp32_config_t config = {
-      .baud_rate = FLASHER_INIT_BAUD,
-      .uart_port = FLASHER_UART,
-      .uart_rx_pin = GPIO_C5_UART_RX_PIN,
-      .uart_tx_pin = GPIO_C5_UART_TX_PIN,
-      .reset_trigger_pin = GPIO_C5_RESET_PIN,
-      .gpio0_trigger_pin = GPIO_C5_BOOT_PIN,
+  const uart_config_t cfg = {
+      .baud_rate = OTA_BAUD,
+      .data_bits = UART_DATA_8_BITS,
+      .parity = UART_PARITY_DISABLE,
+      .stop_bits = UART_STOP_BITS_1,
+      .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+      .source_clk = UART_SCLK_DEFAULT,
   };
-
-  if (loader_port_esp32_init(&config) != ESP_LOADER_SUCCESS) {
-    ESP_LOGE(TAG, "Failed to init serial flasher port");
-    return ESP_FAIL;
+  if (!uart_is_driver_installed(OTA_UART)) {
+    esp_err_t err = uart_driver_install(OTA_UART, OTA_UART_BUF, 0, 0, NULL, 0);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "uart_driver_install: %s", esp_err_to_name(err));
+      return err;
+    }
   }
+  ESP_ERROR_CHECK(uart_param_config(OTA_UART, &cfg));
+  esp_err_t pin_err = uart_set_pin(OTA_UART, GPIO_C5_UART_TX_PIN, GPIO_C5_UART_RX_PIN,
+                                   UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  if (pin_err != ESP_OK) {
+    ESP_LOGE(TAG, "uart_set_pin: %s", esp_err_to_name(pin_err));
+    return pin_err;
+  }
+  ESP_LOGI(TAG, "C5 OTA UART ready: UART%d @ %d baud, TX=GPIO%d -> C5 RX, RX=GPIO%d <- C5 TX",
+           OTA_UART, OTA_BAUD, GPIO_C5_UART_TX_PIN, GPIO_C5_UART_RX_PIN);
   return ESP_OK;
+}
+
+esp_err_t c5_flasher_enter_download(void) {
+  ESP_LOGW(TAG, "Requesting C5 to enter ROM download mode over SPI...");
+  // The C5 acks then reboots into the ROM stub, so the bridge goes away right
+  // after: a timeout here is expected and not an error.
+  spi_header_t resp = {0};
+  esp_err_t ret = spi_bridge_send_command(SPI_ID_SYSTEM_ENTER_DOWNLOAD, NULL, 0, &resp, NULL,
+                                          ENTER_DOWNLOAD_TIMEOUT_MS);
+  if (ret == ESP_OK || ret == ESP_ERR_TIMEOUT) {
+    // Give the C5 time to reboot into the download stub.
+    vTaskDelay(pdMS_TO_TICKS(300));
+    return ESP_OK;
+  }
+  ESP_LOGE(TAG, "enter-download command failed: %s", esp_err_to_name(ret));
+  return ret;
+}
+
+void c5_flasher_release_uart(void) {
+  if (uart_is_driver_installed(OTA_UART))
+    uart_driver_delete(OTA_UART);
+  // Tri-state both lines so the P4 stops driving the shared GPIO38 (C5 RX) net.
+  gpio_reset_pin(GPIO_C5_UART_TX_PIN);
+  gpio_reset_pin(GPIO_C5_UART_RX_PIN);
+  gpio_set_direction(GPIO_C5_UART_TX_PIN, GPIO_MODE_INPUT);
+  gpio_set_direction(GPIO_C5_UART_RX_PIN, GPIO_MODE_INPUT);
+  gpio_set_pull_mode(GPIO_C5_UART_TX_PIN, GPIO_FLOATING);
+  gpio_set_pull_mode(GPIO_C5_UART_RX_PIN, GPIO_FLOATING);
+  ESP_LOGW(TAG, "C5 UART lines released: GPIO%d/GPIO%d now hi-Z inputs.", GPIO_C5_UART_TX_PIN,
+           GPIO_C5_UART_RX_PIN);
+  ESP_LOGW(TAG, "External USB-serial can now own the C5 UART. Reboot P4 to restore.");
 }
 
 esp_err_t c5_flasher_update(const uint8_t *bin_data, uint32_t bin_size) {
-  esp_loader_connect_args_t connect_args = ESP_LOADER_CONNECT_DEFAULT();
-
-  ESP_LOGI(TAG, "Connecting to C5 bootloader");
-  if (esp_loader_connect(&connect_args) != ESP_LOADER_SUCCESS) {
-    ESP_LOGE(TAG, "Failed to connect to C5");
-    return ESP_FAIL;
-  }
-  ESP_LOGI(TAG, "Connected to target (chip id %d)", esp_loader_get_target());
-
-  // Best-effort speed-up. Only switch the host side if the target accepted it,
-  // otherwise stay at the ROM baud rate.
-  if (esp_loader_change_transmission_rate(FLASHER_FAST_BAUD) == ESP_LOADER_SUCCESS) {
-    if (loader_port_change_transmission_rate(FLASHER_FAST_BAUD) != ESP_LOADER_SUCCESS) {
-      ESP_LOGE(TAG, "Host baud switch failed after target switched");
-      return ESP_FAIL;
-    }
-    ESP_LOGI(TAG, "Baud rate raised to %d", FLASHER_FAST_BAUD);
-  } else {
-    ESP_LOGW(TAG, "Baud change unsupported, staying at %d", FLASHER_INIT_BAUD);
-  }
-
-  if (bin_data != NULL) {
-    if (bin_size == 0) {
-      ESP_LOGE(TAG, "Invalid binary size");
-      return ESP_ERR_INVALID_ARG;
-    }
-    c5_image_t app = {"app", C5_APP_OFFSET, bin_data, bin_size};
-    esp_err_t ret = flash_image(&app);
-    if (ret != ESP_OK) {
-      return ret;
-    }
-  } else {
-#if C5_FIRMWARE_EMBEDDED
-    const c5_image_t images[] = {
-        {"bootloader",
-         C5_BOOTLOADER_OFFSET,
-         c5_bootloader_start,
-         (uint32_t)(c5_bootloader_end - c5_bootloader_start)},
-        {"partition-table",
-         C5_PARTITION_OFFSET,
-         c5_partition_start,
-         (uint32_t)(c5_partition_end - c5_partition_start)},
-        {"app", C5_APP_OFFSET, c5_app_start, (uint32_t)(c5_app_end - c5_app_start)},
-    };
-    for (size_t i = 0; i < sizeof(images) / sizeof(images[0]); i++) {
-      esp_err_t ret = flash_image(&images[i]);
-      if (ret != ESP_OK) {
-        return ret;
-      }
-    }
+#if !C5_FIRMWARE_EMBEDDED
+  (void)bin_data;
+  (void)bin_size;
+  ESP_LOGE(TAG, "Embedded C5 firmware is unavailable");
+  return ESP_ERR_NOT_FOUND;
 #else
-    ESP_LOGE(TAG, "Embedded C5 firmware is unavailable");
-    return ESP_ERR_NOT_FOUND;
-#endif
+  if (bin_data == NULL) {
+    bin_data = c5_app_start;
+    bin_size = (uint32_t)(c5_app_end - c5_app_start);
   }
-
-  ESP_LOGI(TAG, "Update successful");
-  esp_loader_reset_target();
-  return ESP_OK;
-}
-
-static esp_err_t flash_image(const c5_image_t *img) {
-  if (img->size == 0) {
-    ESP_LOGE(TAG, "Empty image for %s", img->name);
+  if (bin_size == 0) {
+    ESP_LOGE(TAG, "Invalid image size");
     return ESP_ERR_INVALID_ARG;
   }
+  ESP_LOGI(TAG, "C5 OTA: pushing %lu bytes (%s) over UART%d @ %d baud", (unsigned long)bin_size,
+           (bin_data == c5_app_start) ? "embedded image" : "caller image", OTA_UART, OTA_BAUD);
 
-  ESP_LOGI(TAG,
-           "Flashing %s: %lu bytes @ 0x%05lx",
-           img->name,
-           (unsigned long)img->size,
-           (unsigned long)img->offset);
+  uart_flush(OTA_UART);
 
-  if (esp_loader_flash_start(img->offset, img->size, FLASH_BLOCK_SIZE) != ESP_LOADER_SUCCESS) {
-    ESP_LOGE(TAG, "flash_start failed for %s", img->name);
+  // Handshake: send the magic and wait for the C5 to reply READY before sending
+  // the size + image. Retry the magic - if the first byte was lost on the
+  // idle->active transition the C5 just won't answer and we send it again.
+  bool synced = false;
+  for (int attempt = 1; attempt <= OTA_SYNC_ATTEMPTS && !synced; attempt++) {
+    uart_flush(OTA_UART);
+    uart_write_bytes(OTA_UART, (const char *)OTA_MAGIC, sizeof(OTA_MAGIC));
+    uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(200));
+    uint8_t r = 0;
+    int n = uart_read_bytes(OTA_UART, &r, 1, pdMS_TO_TICKS(OTA_READY_TIMEOUT_MS));
+    if (n == 1 && r == OTA_READY) {
+      synced = true;
+      ESP_LOGI(TAG, "C5 handshake OK (attempt %d/%d)", attempt, OTA_SYNC_ATTEMPTS);
+    } else if (n == 1) {
+      ESP_LOGW(TAG, "handshake %d/%d: got 0x%02X, want READY 0x%02X (baud mismatch or line noise?)",
+               attempt, OTA_SYNC_ATTEMPTS, r, OTA_READY);
+    } else {
+      ESP_LOGW(TAG, "handshake %d/%d: no reply within %d ms", attempt, OTA_SYNC_ATTEMPTS,
+               OTA_READY_TIMEOUT_MS);
+    }
+  }
+  if (!synced) {
+    ESP_LOGE(TAG, "C5 OTA handshake failed after %d attempts", OTA_SYNC_ATTEMPTS);
+    ESP_LOGE(TAG, "  the C5 must be RUNNING ITS APP (the OTA receiver on UART0) to answer");
+    ESP_LOGE(TAG, "  a blank C5 will NOT reply here -- use ROM flash or passthrough instead");
+    ESP_LOGE(TAG, "  also verify wiring TX=GPIO%d/RX=GPIO%d and %d baud on both sides",
+             GPIO_C5_UART_TX_PIN, GPIO_C5_UART_RX_PIN, OTA_BAUD);
     return ESP_FAIL;
   }
+  ESP_LOGI(TAG, "C5 synced - sending image");
 
-  uint8_t block[FLASH_BLOCK_SIZE];
-  uint32_t written = 0;
-  while (written < img->size) {
-    uint32_t chunk = img->size - written;
-    if (chunk > FLASH_BLOCK_SIZE) {
-      chunk = FLASH_BLOCK_SIZE;
-    }
-    memcpy(block, img->data + written, chunk);
-    if (esp_loader_flash_write(block, chunk) != ESP_LOADER_SUCCESS) {
-      ESP_LOGE(TAG, "flash_write failed for %s at offset %lu", img->name, (unsigned long)written);
+  // Size header: 4-byte little-endian.
+  uint8_t size_hdr[4];
+  size_hdr[0] = (uint8_t)(bin_size & 0xFF);
+  size_hdr[1] = (uint8_t)((bin_size >> 8) & 0xFF);
+  size_hdr[2] = (uint8_t)((bin_size >> 16) & 0xFF);
+  size_hdr[3] = (uint8_t)((bin_size >> 24) & 0xFF);
+  uart_write_bytes(OTA_UART, (const char *)size_hdr, sizeof(size_hdr));
+  uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(2000));
+
+  // Wait for the C5 to erase the partition (esp_ota_begin) and signal ready
+  // before streaming - sending during the erase would lose blocks.
+  uint8_t begin = 0;
+  int bn = uart_read_bytes(OTA_UART, &begin, 1, pdMS_TO_TICKS(OTA_BEGIN_TIMEOUT_MS));
+  if (bn != 1 || begin != OTA_ACK) {
+    if (bn != 1)
+      ESP_LOGE(TAG,
+               "C5 not ready after begin: no reply within %d ms (erase too slow, or C5 hung)",
+               OTA_BEGIN_TIMEOUT_MS);
+    else
+      ESP_LOGE(TAG, "C5 not ready after begin: got 0x%02X, want ACK 0x%02X", begin, OTA_ACK);
+    return ESP_FAIL;
+  }
+  ESP_LOGI(TAG, "C5 erased its OTA slot - streaming %lu bytes (block=%d)...",
+           (unsigned long)bin_size, OTA_BLOCK);
+  uint32_t off = 0;
+  uint32_t t_stream0 = xTaskGetTickCount();
+  s_ota_total = bin_size; // UI progress bar can start tracking now
+  s_ota_sent = 0;
+  while (off < bin_size) {
+    uint32_t chunk = (bin_size - off > OTA_BLOCK) ? OTA_BLOCK : bin_size - off;
+    int w = uart_write_bytes(OTA_UART, (const char *)(bin_data + off), chunk);
+    if (w < 0) {
+      ESP_LOGE(TAG, "uart_write_bytes failed @ %lu", (unsigned long)off);
       return ESP_FAIL;
     }
-    written += chunk;
-  }
+    uart_wait_tx_done(OTA_UART, pdMS_TO_TICKS(2000));
 
-#if MD5_ENABLED
-  if (esp_loader_flash_verify() != ESP_LOADER_SUCCESS) {
-    ESP_LOGE(TAG, "MD5 verification failed for %s", img->name);
-    return ESP_FAIL;
+    // Wait for the C5 to ACK this block before sending the next (flow control).
+    uint8_t r = 0;
+    int n = uart_read_bytes(OTA_UART, &r, 1, pdMS_TO_TICKS(OTA_BLOCK_TIMEOUT_MS));
+    if (n != 1 || r != OTA_ACK) {
+      if (n == 1 && r == OTA_NAK) {
+        ESP_LOGE(TAG, "C5 NAK at block @ %lu", (unsigned long)off);
+      } else {
+        ESP_LOGE(TAG, "no block ACK @ %lu (n=%d r=0x%02X)", (unsigned long)off, n, r);
+      }
+      return ESP_FAIL;
+    }
+
+    off += chunk;
+    s_ota_sent = off; // feeds the UI progress bar
+    if ((off & 0x3FFFF) < OTA_BLOCK || off == bin_size) {
+      ESP_LOGI(TAG, "  sent %lu/%lu (%lu%%)", (unsigned long)off, (unsigned long)bin_size,
+               (unsigned long)((uint64_t)off * 100 / bin_size));
+    }
   }
+  uint32_t stream_ms = pdTICKS_TO_MS(xTaskGetTickCount() - t_stream0);
+  ESP_LOGI(TAG, "Image sent in %lu ms (%lu B/s) - waiting for C5 to verify and ACK...",
+           (unsigned long)stream_ms,
+           stream_ms ? (unsigned long)((uint64_t)bin_size * 1000 / stream_ms) : 0UL);
+
+  uint8_t resp = 0;
+  int n = uart_read_bytes(OTA_UART, &resp, 1, pdMS_TO_TICKS(OTA_ACK_TIMEOUT_MS));
+  if (n == 1 && resp == OTA_ACK) {
+    ESP_LOGI(TAG, "C5 ACK - OTA applied, C5 rebooting into new firmware");
+    return ESP_OK;
+  }
+  if (n == 1 && resp == OTA_NAK) {
+    ESP_LOGE(TAG, "C5 NAK - OTA rejected (image invalid or transfer error)");
+  } else {
+    ESP_LOGE(TAG, "no ACK from C5 (n=%d resp=0x%02X)", n, resp);
+  }
+  return ESP_FAIL;
 #endif
-
-  return ESP_OK;
 }
