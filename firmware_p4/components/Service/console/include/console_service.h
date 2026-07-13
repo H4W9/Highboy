@@ -35,6 +35,11 @@ esp_err_t console_service_init(void);
 void console_service_start(void);
 
 /**
+ * @brief Stop and delete the console REPL (frees the console UART).
+ */
+void console_service_stop(void);
+
+/**
  * @brief Register filesystem commands (ls, cd, pwd, cat).
  */
 void register_fs_commands(void);

@@ -7,4 +7,4 @@ dependencies:
   espressif/cjson: ^1.7.19
   espressif/argtable3: ^3.3
   espressif/libsodium: ^1.0.22
-  espressif/esp-serial-flasher: ^1.11.0
+  espressif/esp-serial-flasher: ^2.0.0

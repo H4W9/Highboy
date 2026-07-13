@@ -27,6 +27,8 @@
 
 static const char *TAG = "CONSOLE";
 
+static esp_console_repl_t *s_repl = NULL;
+
 esp_err_t console_service_init(void) {
   esp_console_repl_t *repl = NULL;
   esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
@@ -62,7 +64,17 @@ esp_err_t console_service_init(void) {
 #endif
 
   ESP_ERROR_CHECK(esp_console_start_repl(repl));
+  s_repl = repl;
 
   ESP_LOGI(TAG, "Console started. Type 'help' for commands.");
   return ESP_OK;
+}
+
+void console_service_stop(void) {
+  // Tear down the REPL so it stops consuming the console UART - used before C5
+  // passthrough hands UART0 over to an external esptool session.
+  if (s_repl != NULL && s_repl->del != NULL) {
+    s_repl->del(s_repl);
+    s_repl = NULL;
+  }
 }
