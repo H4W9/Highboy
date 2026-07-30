@@ -1,11 +1,14 @@
+#include "hle/hle_kernel.h"
+
 #include <cstdio>
+#include <filesystem>
 #include <cstring>
 #include <string>
-#include <cerrno>
-#include <sys/stat.h>
+#include <system_error>
 #include <pthread.h>
 #include <unordered_set>
 #include <mutex>
+#include <thread>
 
 #include "hle/spi_bridge_channel.h"
 
@@ -28,14 +31,17 @@ extern "C" {
 static bool s_vfs_mounted = false;
 bool vfs_sdcard_is_mounted(void) { return s_vfs_mounted; }
 esp_err_t vfs_register_sd_backend(void) {
-    std::string base = "/tmp/hle_storage";
-    std::string dir = base + "/sdcard";
-    if ((mkdir(base.c_str(), 0755) != 0 && errno != EEXIST) ||
-        (mkdir(dir.c_str(), 0755) != 0 && errno != EEXIST)) {
-        ESP_LOGE(TAG, "Failed to create HLE storage path: %s", dir.c_str());
+    const std::filesystem::path dir =
+        std::filesystem::path(hle_get_storage_path()) / "sdcard";
+    std::error_code error;
+    std::filesystem::create_directories(dir, error);
+    if (error) {
+        ESP_LOGE(TAG, "Failed to create HLE storage path %s: %s", dir.c_str(),
+                 error.message().c_str());
         s_vfs_mounted = false;
         return ESP_FAIL;
     }
+
     s_vfs_mounted = true;
     ESP_LOGI(TAG, "HLE SD card mounted at %s", dir.c_str());
     return ESP_OK;
@@ -116,23 +122,37 @@ extern "C" {
 
 #include "ota_version.h"
 
-static TaskHandle_t s_bridge_worker_handle = nullptr;
+static std::thread s_bridge_worker;
 
-static void c5_bridge_worker(void) {
+static void c5_bridge_worker(hle::SPIBridgeChannel *channel) {
     ESP_LOGI(TAG, "C5 bridge worker started");
-    while (auto *ch = hle_get_bridge_channel()) {
-        uint8_t cmd_id, payload[256], payload_len;
-        if (!ch->slave_wait_command(cmd_id, payload, payload_len)) break;
+    while (!channel->is_closed()) {
+        uint8_t cmd_id;
+        uint8_t payload[256];
+        uint8_t payload_len;
+        if (!channel->slave_wait_command(cmd_id, payload, payload_len)) {
+            break;
+        }
 
         switch (cmd_id) {
-        case SPI_ID_SYSTEM_PING: ch->slave_send_response(cmd_id, SPI_STATUS_OK, nullptr, 0); break;
-        case SPI_ID_SYSTEM_STATUS: { uint8_t s[] = {1,0,1,0}; ch->slave_send_response(cmd_id, SPI_STATUS_OK, s, sizeof(s)); break; }
-        case SPI_ID_SYSTEM_VERSION: ch->slave_send_response(cmd_id, SPI_STATUS_OK,
-            reinterpret_cast<const uint8_t *>(FIRMWARE_VERSION),
-            static_cast<uint8_t>(strlen(FIRMWARE_VERSION))); break;
-        default: ch->slave_send_response(cmd_id, SPI_STATUS_UNSUPPORTED, nullptr, 0); break;
+        case SPI_ID_SYSTEM_PING:
+            channel->slave_send_response(cmd_id, SPI_STATUS_OK, nullptr, 0);
+            break;
+        case SPI_ID_SYSTEM_STATUS: {
+            uint8_t status[] = {1, 0, 1, 0};
+            channel->slave_send_response(cmd_id, SPI_STATUS_OK, status, sizeof(status));
+            break;
         }
-        ch->slave_notify_irq();
+        case SPI_ID_SYSTEM_VERSION:
+            channel->slave_send_response(cmd_id, SPI_STATUS_OK,
+                                         reinterpret_cast<const uint8_t *>(FIRMWARE_VERSION),
+                                         static_cast<uint8_t>(strlen(FIRMWARE_VERSION)));
+            break;
+        default:
+            channel->slave_send_response(cmd_id, SPI_STATUS_UNSUPPORTED, nullptr, 0);
+            break;
+        }
+        channel->slave_notify_irq();
     }
     ESP_LOGI(TAG, "C5 bridge worker exiting");
 }
@@ -148,12 +168,14 @@ extern "C" {
 extern void kernel_init(void);
 
 void hle_kernel_init(void) {
-    if (hle_get_bridge_channel()) {
-        BaseType_t rc = xTaskCreate([](void *) { c5_bridge_worker(); vTaskDelete(nullptr); },
-                    "c5_bridge", 16384, nullptr, 5, &s_bridge_worker_handle);
-        ESP_LOGI(TAG, "Bridge worker task create: %s, handle=%p", rc == pdPASS ? "OK" : "FAIL", s_bridge_worker_handle);
-    } else {
+    auto *channel = hle_get_bridge_channel();
+    if (channel != nullptr && !s_bridge_worker.joinable()) {
+        s_bridge_worker = std::thread(c5_bridge_worker, channel);
+        ESP_LOGI(TAG, "Bridge worker started");
+    } else if (channel == nullptr) {
         ESP_LOGI(TAG, "No bridge channel, worker not started");
+    } else {
+        ESP_LOGW(TAG, "Bridge worker already running");
     }
 
     ESP_LOGI("MAIN", "Booting TentacleOS firmware...");
@@ -162,12 +184,14 @@ void hle_kernel_init(void) {
 }
 
 void hle_kernel_shutdown(void) {
-    auto *ch = hle_get_bridge_channel();
-    if (ch) {
-        ch->close();
-        hle_set_bridge_channel(nullptr);
+    auto *channel = hle_get_bridge_channel();
+    if (channel != nullptr) {
+        channel->close();
     }
-    s_bridge_worker_handle = nullptr;
+    if (s_bridge_worker.joinable()) {
+        s_bridge_worker.join();
+    }
+    hle_set_bridge_channel(nullptr);
 }
 
 } // extern "C"

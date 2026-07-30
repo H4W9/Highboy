@@ -1,3 +1,5 @@
+#include <atomic>
+#include <cinttypes>
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
@@ -9,6 +11,7 @@
 #include <dirent.h>
 #include <chrono>
 #include <thread>
+#include <utility>
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -385,21 +388,75 @@ void vQueueDelete(QueueHandle_t queue) {
 // NVS Flash Mock
 // ═══════════════════════════════════════════════════════════════════════════════
 
-struct NVSBlob {
+enum class NVSValueType {
+    I8,
+    U8,
+    I16,
+    U16,
+    I32,
+    U32,
+    I64,
+    U64,
+    String,
+    Blob,
+};
+
+struct NVSValue {
+    NVSValueType type;
     std::vector<uint8_t> data;
 };
 
 struct NVSNamespace {
-    std::map<std::string, NVSBlob> keys;
+    std::map<std::string, NVSValue> keys;
 };
 
+struct NVSHandleInfo {
+    std::string namespace_name;
+    nvs_open_mode_t mode;
+};
+
+static constexpr size_t NVS_NAME_MAX_LENGTH = 15;
 static std::mutex s_nvs_mutex;
 static std::map<std::string, NVSNamespace> s_nvs_storage;
 static uint32_t s_nvs_next_handle = 1;
-static std::map<uint32_t, std::string> s_nvs_handles;
+static std::map<uint32_t, NVSHandleInfo> s_nvs_handles;
 static bool s_nvs_initialized = false;
 
+static esp_err_t nvs_validate_namespace(const char *name) {
+    if (name == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const size_t length = strlen(name);
+    if (length == 0 || length > NVS_NAME_MAX_LENGTH) {
+        return ESP_ERR_NVS_INVALID_NAME;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t nvs_validate_key(const char *key) {
+    if (key == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const size_t length = strlen(key);
+    if (length == 0) {
+        return ESP_ERR_NVS_INVALID_NAME;
+    }
+    if (length > NVS_NAME_MAX_LENGTH) {
+        return ESP_ERR_NVS_KEY_TOO_LONG;
+    }
+    return ESP_OK;
+}
+
+static std::map<uint32_t, NVSHandleInfo>::iterator nvs_find_handle(nvs_handle_t handle) {
+    return s_nvs_handles.find(handle);
+}
+
+static bool nvs_handle_is_writable(const NVSHandleInfo &handle) {
+    return handle.mode == NVS_READWRITE;
+}
+
 esp_err_t nvs_flash_init(void) {
+    std::lock_guard<std::mutex> lock(s_nvs_mutex);
     s_nvs_initialized = true;
     return ESP_OK;
 }
@@ -408,19 +465,37 @@ esp_err_t nvs_flash_erase(void) {
     std::lock_guard<std::mutex> lock(s_nvs_mutex);
     s_nvs_storage.clear();
     s_nvs_handles.clear();
+    s_nvs_next_handle = 1;
+    s_nvs_initialized = false;
     return ESP_OK;
 }
 
-esp_err_t nvs_open(const char *ns, nvs_open_mode_t mode, nvs_handle_t *out_handle) {
-    (void)mode;
-    if (!ns || !out_handle) return ESP_ERR_INVALID_ARG;
-    std::lock_guard<std::mutex> lock(s_nvs_mutex);
-    if (s_nvs_storage.find(ns) == s_nvs_storage.end()) {
-        s_nvs_storage[ns] = NVSNamespace{};
+esp_err_t nvs_open(const char *namespace_name, nvs_open_mode_t mode,
+                   nvs_handle_t *out_handle) {
+    const esp_err_t name_error = nvs_validate_namespace(namespace_name);
+    if (name_error != ESP_OK || out_handle == nullptr) {
+        return name_error != ESP_OK ? name_error : ESP_ERR_INVALID_ARG;
     }
-    uint32_t h = s_nvs_next_handle++;
-    s_nvs_handles[h] = ns;
-    *out_handle = h;
+    if (mode != NVS_READONLY && mode != NVS_READWRITE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    std::lock_guard<std::mutex> lock(s_nvs_mutex);
+    if (!s_nvs_initialized) {
+        return ESP_ERR_NVS_NOT_INITIALIZED;
+    }
+
+    auto namespace_it = s_nvs_storage.find(namespace_name);
+    if (namespace_it == s_nvs_storage.end()) {
+        if (mode == NVS_READONLY) {
+            return ESP_ERR_NVS_NOT_FOUND;
+        }
+        s_nvs_storage.emplace(namespace_name, NVSNamespace{});
+    }
+
+    const uint32_t handle = s_nvs_next_handle++;
+    s_nvs_handles.emplace(handle, NVSHandleInfo{namespace_name, mode});
+    *out_handle = handle;
     return ESP_OK;
 }
 
@@ -430,113 +505,230 @@ void nvs_close(nvs_handle_t handle) {
 }
 
 esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key) {
+    const esp_err_t key_error = nvs_validate_key(key);
+    if (key_error != ESP_OK) {
+        return key_error;
+    }
+
     std::lock_guard<std::mutex> lock(s_nvs_mutex);
-    auto it = s_nvs_handles.find(handle);
-    if (it == s_nvs_handles.end()) return ESP_ERR_INVALID_ARG;
-    s_nvs_storage[it->second].keys.erase(key);
+    auto handle_it = nvs_find_handle(handle);
+    if (handle_it == s_nvs_handles.end()) {
+        return ESP_ERR_NVS_INVALID_HANDLE;
+    }
+    if (!nvs_handle_is_writable(handle_it->second)) {
+        return ESP_ERR_NVS_READ_ONLY;
+    }
+
+    auto &keys = s_nvs_storage[handle_it->second.namespace_name].keys;
+    auto key_it = keys.find(key);
+    if (key_it == keys.end()) {
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
+    keys.erase(key_it);
     return ESP_OK;
 }
 
 esp_err_t nvs_erase_all(nvs_handle_t handle) {
     std::lock_guard<std::mutex> lock(s_nvs_mutex);
-    auto it = s_nvs_handles.find(handle);
-    if (it == s_nvs_handles.end()) return ESP_ERR_INVALID_ARG;
-    s_nvs_storage[it->second].keys.clear();
+    auto handle_it = nvs_find_handle(handle);
+    if (handle_it == s_nvs_handles.end()) {
+        return ESP_ERR_NVS_INVALID_HANDLE;
+    }
+    if (!nvs_handle_is_writable(handle_it->second)) {
+        return ESP_ERR_NVS_READ_ONLY;
+    }
+    s_nvs_storage[handle_it->second.namespace_name].keys.clear();
     return ESP_OK;
 }
 
 esp_err_t nvs_commit(nvs_handle_t handle) {
-    (void)handle;
+    std::lock_guard<std::mutex> lock(s_nvs_mutex);
+    return nvs_find_handle(handle) != s_nvs_handles.end() ? ESP_OK
+                                                          : ESP_ERR_NVS_INVALID_HANDLE;
+}
+
+template<typename T>
+static esp_err_t nvs_get_value(nvs_handle_t handle, const char *key, T *out_value,
+                               NVSValueType expected_type) {
+    const esp_err_t key_error = nvs_validate_key(key);
+    if (key_error != ESP_OK || out_value == nullptr) {
+        return key_error != ESP_OK ? key_error : ESP_ERR_INVALID_ARG;
+    }
+
+    std::lock_guard<std::mutex> lock(s_nvs_mutex);
+    auto handle_it = nvs_find_handle(handle);
+    if (handle_it == s_nvs_handles.end()) {
+        return ESP_ERR_NVS_INVALID_HANDLE;
+    }
+
+    auto &keys = s_nvs_storage[handle_it->second.namespace_name].keys;
+    auto key_it = keys.find(key);
+    if (key_it == keys.end()) {
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
+    if (key_it->second.type != expected_type) {
+        return ESP_ERR_NVS_TYPE_MISMATCH;
+    }
+    memcpy(out_value, key_it->second.data.data(), sizeof(T));
     return ESP_OK;
 }
 
 template<typename T>
-static esp_err_t nvs_get_val(nvs_handle_t handle, const char *key, T *out) {
+static esp_err_t nvs_set_value(nvs_handle_t handle, const char *key, T value,
+                               NVSValueType type) {
+    const esp_err_t key_error = nvs_validate_key(key);
+    if (key_error != ESP_OK) {
+        return key_error;
+    }
+
     std::lock_guard<std::mutex> lock(s_nvs_mutex);
-    auto it = s_nvs_handles.find(handle);
-    if (it == s_nvs_handles.end()) return ESP_ERR_INVALID_ARG;
-    auto kit = s_nvs_storage[it->second].keys.find(key);
-    if (kit == s_nvs_storage[it->second].keys.end()) return ESP_ERR_NVS_NOT_FOUND;
-    if (kit->second.data.size() != sizeof(T)) return ESP_ERR_NVS_NOT_FOUND;
-    memcpy(out, kit->second.data.data(), sizeof(T));
+    auto handle_it = nvs_find_handle(handle);
+    if (handle_it == s_nvs_handles.end()) {
+        return ESP_ERR_NVS_INVALID_HANDLE;
+    }
+    if (!nvs_handle_is_writable(handle_it->second)) {
+        return ESP_ERR_NVS_READ_ONLY;
+    }
+
+    NVSValue stored_value{type, std::vector<uint8_t>(sizeof(T))};
+    memcpy(stored_value.data.data(), &value, sizeof(T));
+    s_nvs_storage[handle_it->second.namespace_name].keys[key] = std::move(stored_value);
     return ESP_OK;
 }
 
-template<typename T>
-static esp_err_t nvs_set_val(nvs_handle_t handle, const char *key, T val) {
+esp_err_t nvs_get_i8(nvs_handle_t handle, const char *key, int8_t *out_value) {
+    return nvs_get_value(handle, key, out_value, NVSValueType::I8);
+}
+esp_err_t nvs_get_u8(nvs_handle_t handle, const char *key, uint8_t *out_value) {
+    return nvs_get_value(handle, key, out_value, NVSValueType::U8);
+}
+esp_err_t nvs_get_i16(nvs_handle_t handle, const char *key, int16_t *out_value) {
+    return nvs_get_value(handle, key, out_value, NVSValueType::I16);
+}
+esp_err_t nvs_get_u16(nvs_handle_t handle, const char *key, uint16_t *out_value) {
+    return nvs_get_value(handle, key, out_value, NVSValueType::U16);
+}
+esp_err_t nvs_get_i32(nvs_handle_t handle, const char *key, int32_t *out_value) {
+    return nvs_get_value(handle, key, out_value, NVSValueType::I32);
+}
+esp_err_t nvs_get_u32(nvs_handle_t handle, const char *key, uint32_t *out_value) {
+    return nvs_get_value(handle, key, out_value, NVSValueType::U32);
+}
+esp_err_t nvs_get_i64(nvs_handle_t handle, const char *key, int64_t *out_value) {
+    return nvs_get_value(handle, key, out_value, NVSValueType::I64);
+}
+esp_err_t nvs_get_u64(nvs_handle_t handle, const char *key, uint64_t *out_value) {
+    return nvs_get_value(handle, key, out_value, NVSValueType::U64);
+}
+
+esp_err_t nvs_set_i8(nvs_handle_t handle, const char *key, int8_t value) {
+    return nvs_set_value(handle, key, value, NVSValueType::I8);
+}
+esp_err_t nvs_set_u8(nvs_handle_t handle, const char *key, uint8_t value) {
+    return nvs_set_value(handle, key, value, NVSValueType::U8);
+}
+esp_err_t nvs_set_i16(nvs_handle_t handle, const char *key, int16_t value) {
+    return nvs_set_value(handle, key, value, NVSValueType::I16);
+}
+esp_err_t nvs_set_u16(nvs_handle_t handle, const char *key, uint16_t value) {
+    return nvs_set_value(handle, key, value, NVSValueType::U16);
+}
+esp_err_t nvs_set_i32(nvs_handle_t handle, const char *key, int32_t value) {
+    return nvs_set_value(handle, key, value, NVSValueType::I32);
+}
+esp_err_t nvs_set_u32(nvs_handle_t handle, const char *key, uint32_t value) {
+    return nvs_set_value(handle, key, value, NVSValueType::U32);
+}
+esp_err_t nvs_set_i64(nvs_handle_t handle, const char *key, int64_t value) {
+    return nvs_set_value(handle, key, value, NVSValueType::I64);
+}
+esp_err_t nvs_set_u64(nvs_handle_t handle, const char *key, uint64_t value) {
+    return nvs_set_value(handle, key, value, NVSValueType::U64);
+}
+
+static esp_err_t nvs_get_buffer(nvs_handle_t handle, const char *key, void *out_value,
+                                size_t *in_out_length, NVSValueType expected_type) {
+    const esp_err_t key_error = nvs_validate_key(key);
+    if (key_error != ESP_OK || in_out_length == nullptr) {
+        return key_error != ESP_OK ? key_error : ESP_ERR_INVALID_ARG;
+    }
+
     std::lock_guard<std::mutex> lock(s_nvs_mutex);
-    auto it = s_nvs_handles.find(handle);
-    if (it == s_nvs_handles.end()) return ESP_ERR_INVALID_ARG;
-    NVSBlob blob;
-    blob.data.resize(sizeof(T));
-    memcpy(blob.data.data(), &val, sizeof(T));
-    s_nvs_storage[it->second].keys[key] = blob;
+    auto handle_it = nvs_find_handle(handle);
+    if (handle_it == s_nvs_handles.end()) {
+        return ESP_ERR_NVS_INVALID_HANDLE;
+    }
+
+    auto &keys = s_nvs_storage[handle_it->second.namespace_name].keys;
+    auto key_it = keys.find(key);
+    if (key_it == keys.end()) {
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
+    if (key_it->second.type != expected_type) {
+        return ESP_ERR_NVS_TYPE_MISMATCH;
+    }
+
+    const size_t required_length = key_it->second.data.size();
+    if (out_value == nullptr) {
+        *in_out_length = required_length;
+        return ESP_OK;
+    }
+    if (*in_out_length < required_length) {
+        *in_out_length = required_length;
+        return ESP_ERR_NVS_INVALID_LENGTH;
+    }
+    if (required_length > 0) {
+        memcpy(out_value, key_it->second.data.data(), required_length);
+    }
+    *in_out_length = required_length;
     return ESP_OK;
 }
 
-esp_err_t nvs_get_i8(nvs_handle_t h, const char *k, int8_t *v)  { return nvs_get_val(h, k, v); }
-esp_err_t nvs_get_u8(nvs_handle_t h, const char *k, uint8_t *v)  { return nvs_get_val(h, k, v); }
-esp_err_t nvs_get_i16(nvs_handle_t h, const char *k, int16_t *v) { return nvs_get_val(h, k, v); }
-esp_err_t nvs_get_u16(nvs_handle_t h, const char *k, uint16_t *v) { return nvs_get_val(h, k, v); }
-esp_err_t nvs_get_i32(nvs_handle_t h, const char *k, int32_t *v) { return nvs_get_val(h, k, v); }
-esp_err_t nvs_get_u32(nvs_handle_t h, const char *k, uint32_t *v) { return nvs_get_val(h, k, v); }
-esp_err_t nvs_get_i64(nvs_handle_t h, const char *k, int64_t *v) { return nvs_get_val(h, k, v); }
-esp_err_t nvs_get_u64(nvs_handle_t h, const char *k, uint64_t *v) { return nvs_get_val(h, k, v); }
+static esp_err_t nvs_set_buffer(nvs_handle_t handle, const char *key, const void *value,
+                                size_t length, NVSValueType type) {
+    const esp_err_t key_error = nvs_validate_key(key);
+    if (key_error != ESP_OK || (value == nullptr && length > 0)) {
+        return key_error != ESP_OK ? key_error : ESP_ERR_INVALID_ARG;
+    }
 
-esp_err_t nvs_set_i8(nvs_handle_t h, const char *k, int8_t v)  { return nvs_set_val(h, k, v); }
-esp_err_t nvs_set_u8(nvs_handle_t h, const char *k, uint8_t v)  { return nvs_set_val(h, k, v); }
-esp_err_t nvs_set_i16(nvs_handle_t h, const char *k, int16_t v) { return nvs_set_val(h, k, v); }
-esp_err_t nvs_set_u16(nvs_handle_t h, const char *k, uint16_t v) { return nvs_set_val(h, k, v); }
-esp_err_t nvs_set_i32(nvs_handle_t h, const char *k, int32_t v) { return nvs_set_val(h, k, v); }
-esp_err_t nvs_set_u32(nvs_handle_t h, const char *k, uint32_t v) { return nvs_set_val(h, k, v); }
-esp_err_t nvs_set_i64(nvs_handle_t h, const char *k, int64_t v) { return nvs_set_val(h, k, v); }
-esp_err_t nvs_set_u64(nvs_handle_t h, const char *k, uint64_t v) { return nvs_set_val(h, k, v); }
-
-esp_err_t nvs_get_str(nvs_handle_t handle, const char *key, char *out, size_t *len) {
     std::lock_guard<std::mutex> lock(s_nvs_mutex);
-    auto it = s_nvs_handles.find(handle);
-    if (it == s_nvs_handles.end()) return ESP_ERR_INVALID_ARG;
-    auto kit = s_nvs_storage[it->second].keys.find(key);
-    if (kit == s_nvs_storage[it->second].keys.end()) return ESP_ERR_NVS_NOT_FOUND;
-    const auto &data = kit->second.data;
-    size_t copy = *len < data.size() ? *len : data.size();
-    memcpy(out, data.data(), copy);
-    *len = data.size();
-    return copy <= data.size() ? ESP_OK : ESP_ERR_INVALID_ARG;
-}
+    auto handle_it = nvs_find_handle(handle);
+    if (handle_it == s_nvs_handles.end()) {
+        return ESP_ERR_NVS_INVALID_HANDLE;
+    }
+    if (!nvs_handle_is_writable(handle_it->second)) {
+        return ESP_ERR_NVS_READ_ONLY;
+    }
 
-esp_err_t nvs_set_str(nvs_handle_t handle, const char *key, const char *v) {
-    std::lock_guard<std::mutex> lock(s_nvs_mutex);
-    auto it = s_nvs_handles.find(handle);
-    if (it == s_nvs_handles.end()) return ESP_ERR_INVALID_ARG;
-    NVSBlob blob;
-    size_t len = strlen(v) + 1;
-    blob.data.assign(v, v + len);
-    s_nvs_storage[it->second].keys[key] = blob;
+    NVSValue stored_value{type, {}};
+    if (length > 0) {
+        const auto *bytes = static_cast<const uint8_t *>(value);
+        stored_value.data.assign(bytes, bytes + length);
+    }
+    s_nvs_storage[handle_it->second.namespace_name].keys[key] = std::move(stored_value);
     return ESP_OK;
 }
 
-esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key, void *out, size_t *len) {
-    std::lock_guard<std::mutex> lock(s_nvs_mutex);
-    auto it = s_nvs_handles.find(handle);
-    if (it == s_nvs_handles.end()) return ESP_ERR_INVALID_ARG;
-    auto kit = s_nvs_storage[it->second].keys.find(key);
-    if (kit == s_nvs_storage[it->second].keys.end()) return ESP_ERR_NVS_NOT_FOUND;
-    const auto &data = kit->second.data;
-    size_t copy = *len < data.size() ? *len : data.size();
-    memcpy(out, data.data(), copy);
-    *len = data.size();
-    return copy <= data.size() ? ESP_OK : ESP_ERR_INVALID_ARG;
+esp_err_t nvs_get_str(nvs_handle_t handle, const char *key, char *out_value,
+                      size_t *in_out_length) {
+    return nvs_get_buffer(handle, key, out_value, in_out_length, NVSValueType::String);
 }
 
-esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *v, size_t len) {
-    std::lock_guard<std::mutex> lock(s_nvs_mutex);
-    auto it = s_nvs_handles.find(handle);
-    if (it == s_nvs_handles.end()) return ESP_ERR_INVALID_ARG;
-    NVSBlob blob;
-    blob.data.assign((const uint8_t *)v, (const uint8_t *)v + len);
-    s_nvs_storage[it->second].keys[key] = blob;
-    return ESP_OK;
+esp_err_t nvs_set_str(nvs_handle_t handle, const char *key, const char *value) {
+    if (value == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return nvs_set_buffer(handle, key, value, strlen(value) + 1, NVSValueType::String);
+}
+
+esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key, void *out_value,
+                       size_t *in_out_length) {
+    return nvs_get_buffer(handle, key, out_value, in_out_length, NVSValueType::Blob);
+}
+
+esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *value,
+                       size_t length) {
+    return nvs_set_buffer(handle, key, value, length, NVSValueType::Blob);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -737,10 +929,15 @@ esp_err_t rmt_apply_carrier(rmt_channel_handle_t tx_chan, const rmt_carrier_conf
 // SPI Bridge Channel Integration
 // ═══════════════════════════════════════════════════════════════════════════════
 
-static hle::SPIBridgeChannel *s_bridge_channel = nullptr;
+static std::atomic<hle::SPIBridgeChannel *> s_bridge_channel{nullptr};
 
-void hle_set_bridge_channel(hle::SPIBridgeChannel *ch) { s_bridge_channel = ch; }
-hle::SPIBridgeChannel *hle_get_bridge_channel(void) { return s_bridge_channel; }
+void hle_set_bridge_channel(hle::SPIBridgeChannel *channel) {
+    s_bridge_channel.store(channel, std::memory_order_release);
+}
+
+hle::SPIBridgeChannel *hle_get_bridge_channel(void) {
+    return s_bridge_channel.load(std::memory_order_acquire);
+}
 
 // ── SPI Bridge PHY — wired to in-memory channel ────────────────────────────────
 // spi_bridge.c calls: transmit(cmd,NULL) → wait_irq → transmit(empty,resp)
@@ -757,73 +954,96 @@ static uint32_t s_pending_timeout_ms = 0;
 extern "C" {
 
 esp_err_t spi_bridge_phy_init(void) {
+    std::lock_guard<std::recursive_mutex> lock(s_phy_mutex);
+    if (hle_get_bridge_channel() == nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_has_pending_cmd = false;
+    s_pending_timeout_ms = 0;
     ESP_LOGI("SPI_PHY", "PHY init");
     return ESP_OK;
 }
 esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
-    if (!s_bridge_channel) return ESP_ERR_INVALID_STATE;
     std::lock_guard<std::recursive_mutex> lock(s_phy_mutex);
-    const spi_header_t *hdr = reinterpret_cast<const spi_header_t *>(tx_data);
+    auto *channel = hle_get_bridge_channel();
+    if (channel == nullptr || channel->is_closed()) {
+        return ESP_ERR_INVALID_STATE;
+    }
 
     if (rx_data == nullptr) {
-        if (len < sizeof(spi_header_t)) return ESP_ERR_INVALID_ARG;
-        if (hdr->length > SPI_MAX_PAYLOAD) return ESP_ERR_INVALID_ARG;
-        if (len < sizeof(spi_header_t) + hdr->length) return ESP_ERR_INVALID_ARG;
-        memcpy(&s_pending_cmd_header, hdr, sizeof(spi_header_t));
+        if (tx_data == nullptr || len < sizeof(spi_header_t)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        const auto *header = reinterpret_cast<const spi_header_t *>(tx_data);
+        if (len < sizeof(spi_header_t) + header->length) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+
+        memcpy(&s_pending_cmd_header, header, sizeof(spi_header_t));
         memset(s_pending_cmd_payload, 0, sizeof(s_pending_cmd_payload));
-        if (hdr->length > 0) {
-            memcpy(s_pending_cmd_payload, tx_data + sizeof(spi_header_t), hdr->length);
+        if (header->length > 0) {
+            memcpy(s_pending_cmd_payload, tx_data + sizeof(spi_header_t), header->length);
         }
         s_has_pending_cmd = true;
-        ESP_LOGI("SPI_PHY", "TX cmd 0x%02X len=%d", hdr->id, hdr->length);
-        s_bridge_channel->master_send_command(hdr->id, s_pending_cmd_payload, hdr->length);
+        ESP_LOGI("SPI_PHY", "TX cmd 0x%02X len=%d", header->id, header->length);
+        channel->master_send_command(header->id, s_pending_cmd_payload, header->length);
         return ESP_OK;
     }
 
-    if (s_has_pending_cmd) {
-        uint8_t resp_id;
-        uint8_t resp_payload[SPI_MAX_PAYLOAD];
-        uint8_t resp_len = 0;
-        ESP_LOGI("SPI_PHY", "RX waiting for response (timeout=%lu ms)", s_pending_timeout_ms);
-        bool ok = s_bridge_channel->master_receive_response(resp_id, resp_payload, resp_len,
-                                                            s_pending_timeout_ms);
-        ESP_LOGI("SPI_PHY", "RX response ok=%d id=0x%02X len=%d", ok, resp_id, resp_len);
-        s_has_pending_cmd = false;
-
+    if (!s_has_pending_cmd) {
         memset(rx_data, 0, len);
-        if (ok) {
-            if (len < sizeof(spi_header_t)) return ESP_ERR_INVALID_SIZE;
-            size_t total = sizeof(spi_header_t) + resp_len;
-            if (len < total) return ESP_ERR_INVALID_SIZE;
-            spi_header_t resp_hdr;
-            resp_hdr.sync = SPI_SYNC_BYTE;
-            resp_hdr.type = SPI_TYPE_RESP;
-            resp_hdr.id = resp_id;
-            resp_hdr.length = resp_len;
-            memcpy(rx_data, &resp_hdr, sizeof(resp_hdr));
-            if (resp_len > 0) {
-                memcpy(rx_data + sizeof(resp_hdr), resp_payload, resp_len);
-            }
-        }
-        return ok ? ESP_OK : ESP_ERR_TIMEOUT;
+        return ESP_ERR_INVALID_STATE;
     }
 
-    if (rx_data) memset(rx_data, 0, len);
-    return ESP_ERR_INVALID_STATE;
+    uint8_t resp_id = 0;
+    uint8_t resp_payload[SPI_MAX_PAYLOAD];
+    uint8_t resp_len = 0;
+    ESP_LOGI("SPI_PHY", "RX waiting for response (timeout=%" PRIu32 " ms)",
+             s_pending_timeout_ms);
+    bool is_ok =
+        channel->master_receive_response(resp_id, resp_payload, resp_len, s_pending_timeout_ms);
+    ESP_LOGI("SPI_PHY", "RX response ok=%d id=0x%02X len=%d", is_ok, resp_id, resp_len);
+    s_has_pending_cmd = false;
+
+    memset(rx_data, 0, len);
+    if (!is_ok) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const size_t total = sizeof(spi_header_t) + resp_len;
+    if (len < total) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    spi_header_t resp_header{};
+    resp_header.sync = SPI_SYNC_BYTE;
+    resp_header.type = SPI_TYPE_RESP;
+    resp_header.id = resp_id;
+    resp_header.length = resp_len;
+    memcpy(rx_data, &resp_header, sizeof(resp_header));
+    if (resp_len > 0) {
+        memcpy(rx_data + sizeof(resp_header), resp_payload, resp_len);
+    }
+    return ESP_OK;
 }
 esp_err_t spi_bridge_phy_wait_irq(uint32_t timeout_ms) {
-    if (!s_bridge_channel) return ESP_ERR_INVALID_STATE;
     std::lock_guard<std::recursive_mutex> lock(s_phy_mutex);
+    auto *channel = hle_get_bridge_channel();
+    if (channel == nullptr || channel->is_closed()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     s_pending_timeout_ms = timeout_ms;
-    ESP_LOGI("SPI_PHY", "Wait IRQ %lu ms", timeout_ms);
-    bool ok = s_bridge_channel->master_wait_irq(timeout_ms);
-    ESP_LOGI("SPI_PHY", "IRQ result=%d", ok);
-    return ok ? ESP_OK : ESP_ERR_TIMEOUT;
+    ESP_LOGI("SPI_PHY", "Wait IRQ %" PRIu32 " ms", timeout_ms);
+    const bool is_ready = channel->master_wait_irq(timeout_ms);
+    ESP_LOGI("SPI_PHY", "IRQ result=%d", is_ready);
+    return is_ready ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 } // extern "C"
 
-static const size_t B_FRAME = 260;
+static const size_t B_FRAME = SPI_FRAME_SIZE;
 
 // SPI slave stubs — wired to in-memory channel
 esp_err_t spi_slave_initialize(int host, const spi_bus_config_t *bus,
@@ -832,39 +1052,51 @@ esp_err_t spi_slave_initialize(int host, const spi_bus_config_t *bus,
 }
 
 esp_err_t spi_slave_transmit(int host, spi_slave_transaction_t *trans, int timeout) {
-    (void)host; (void)timeout;
-    if (!s_bridge_channel) return ESP_FAIL;
+    (void)host;
+    (void)timeout;
+    auto *channel = hle_get_bridge_channel();
+    if (channel == nullptr || channel->is_closed() || trans == nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
 
     if (trans->tx_buffer == nullptr && trans->rx_buffer != nullptr) {
-        // Slave is waiting for a command from master
-        uint8_t cmd_id, payload[256], len;
-        if (!s_bridge_channel->slave_wait_command(cmd_id, payload, len)) return ESP_FAIL;
+        uint8_t cmd_id;
+        uint8_t payload[SPI_MAX_PAYLOAD];
+        uint8_t len;
+        if (!channel->slave_wait_command(cmd_id, payload, len)) {
+            return ESP_FAIL;
+        }
 
-        // Copy command frame into rx_buffer
-        uint8_t *rx = static_cast<uint8_t *>(trans->rx_buffer);
+        auto *rx = static_cast<uint8_t *>(trans->rx_buffer);
         memset(rx, 0, B_FRAME);
-        rx[0] = 0xAA;  // sync
-        rx[1] = 0x01;  // CMD type
+        rx[0] = SPI_SYNC_BYTE;
+        rx[1] = SPI_TYPE_CMD;
         rx[2] = cmd_id;
         rx[3] = len;
-        if (len > 0) memcpy(rx + 4, payload, len);
-    } else if (trans->tx_buffer != nullptr && trans->rx_buffer == nullptr) {
-        // Slave is sending response back to master
-        // The tx_buffer contains the response frame [sync, type, id, len, status, payload...]
-        const uint8_t *tx = static_cast<const uint8_t *>(trans->tx_buffer);
-        uint8_t sync = tx[0], type = tx[1], cmd_id = tx[2], plen = tx[3];
-        if (sync != 0xAA) return ESP_FAIL;
-        if (type == 0x02) {
-            // Response: payload starts at byte 5 (after header + status)
-            uint8_t status = (plen > 0) ? tx[4] : 0;
-            uint8_t data_len = (plen > 0) ? plen - 1 : 0;
-            s_bridge_channel->slave_send_response(cmd_id, status, tx + 5, data_len);
-        } else if (type == 0x03) {
-            // Stream
-            uint8_t data_len = (plen > 0) ? plen : 0;
-            s_bridge_channel->slave_send_stream(cmd_id, tx + 4, data_len);
+        if (len > 0) {
+            memcpy(rx + sizeof(spi_header_t), payload, len);
         }
-        s_bridge_channel->slave_notify_irq();
+    } else if (trans->tx_buffer != nullptr && trans->rx_buffer == nullptr) {
+        const auto *tx = static_cast<const uint8_t *>(trans->tx_buffer);
+        const uint8_t sync = tx[0];
+        const uint8_t type = tx[1];
+        const uint8_t cmd_id = tx[2];
+        const uint8_t payload_len = tx[3];
+        if (sync != SPI_SYNC_BYTE) {
+            return ESP_FAIL;
+        }
+        if (type == SPI_TYPE_RESP) {
+            const uint8_t status = payload_len > 0 ? tx[4] : 0;
+            const uint8_t data_len = payload_len > 0 ? payload_len - 1 : 0;
+            channel->slave_send_response(cmd_id, status, tx + 5, data_len);
+        } else if (type == SPI_TYPE_STREAM) {
+            channel->slave_send_stream(cmd_id, tx + sizeof(spi_header_t), payload_len);
+        } else {
+            return ESP_ERR_INVALID_ARG;
+        }
+        channel->slave_notify_irq();
+    } else {
+        return ESP_ERR_INVALID_ARG;
     }
 
     return ESP_OK;
@@ -904,9 +1136,8 @@ void sdmmc_host_deinit(void) {}
 // ESP LCD Panel Stubs (wired to HLE Display)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-typedef void (*hle_color_trans_done_t)(void *, void *, void *);
 struct HLEPanel {
-    hle_color_trans_done_t on_color_trans_done;
+    esp_lcd_panel_io_color_trans_done_cb_t on_color_trans_done;
     void *ctx;
 };
 
@@ -955,7 +1186,7 @@ esp_err_t esp_lcd_panel_io_register_event_callbacks(esp_lcd_panel_io_handle_t io
     const esp_lcd_panel_io_callbacks_t *cbs, void *ctx) {
     auto *p = static_cast<HLEPanel *>(io);
     if (p && cbs) {
-        p->on_color_trans_done = (hle_color_trans_done_t)cbs->on_color_trans_done;
+        p->on_color_trans_done = cbs->on_color_trans_done;
         p->ctx = ctx;
     }
     return ESP_OK;
@@ -970,7 +1201,15 @@ esp_err_t esp_lcd_panel_io_register_event_callbacks(esp_lcd_panel_io_handle_t io
 
 static std::string s_base_path = "/tmp/hle_storage";
 
-void hle_set_storage_path(const char *path) { s_base_path = path; }
+void hle_set_storage_path(const char *path) {
+    if (path != nullptr && path[0] != '\0') {
+        s_base_path = path;
+    }
+}
+
+const char *hle_get_storage_path(void) {
+    return s_base_path.c_str();
+}
 
 static std::string hle_translate_path(const char *path) {
     if (!path || path[0] == '\0') return {};

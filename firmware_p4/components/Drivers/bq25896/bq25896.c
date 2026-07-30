@@ -19,6 +19,7 @@
 
 #include "driver/i2c.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 
 #define I2C_PORT       I2C_NUM_0
 #define I2C_TIMEOUT_MS 100

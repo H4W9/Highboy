@@ -70,6 +70,57 @@ Exemplo de layout:
 └── README.md
 ```
 
+## Simulador HLE nativo
+
+O alvo de emulação de alto nível (HLE) executa a interface do P4, o LVGL, o
+armazenamento no host e uma ponte SPI simulada para o C5 no Linux. Ele permite
+desenvolver a interface e os fluxos do firmware sem conectar um High Boy.
+
+Instale um compilador C/C++, o CMake e o pacote de desenvolvimento do SDL2:
+
+```bash
+cmake -S tools/hle -B build
+cmake --build build --target hle_interactive -j
+./build/hle_interactive
+```
+
+Controles:
+
+| Entrada do High Boy | Teclado |
+| :--- | :--- |
+| Botões direcionais | Setas ou W/A/S/D |
+| OK | Enter, Enter do teclado numérico ou Espaço |
+| Voltar | Backspace ou Escape |
+| Sair do simulador | Ctrl+Q ou fechar a janela |
+
+Por padrão, o simulador armazena os dados de `/sdcard` em `/tmp/hle_storage`.
+Use `HLE_STORAGE_PATH` para escolher outro local:
+
+```bash
+HLE_STORAGE_PATH="$PWD/.hle-storage" ./build/hle_interactive
+```
+
+Para gerar capturas determinísticas da interface sem abrir uma janela:
+
+```bash
+SDL_VIDEODRIVER=dummy \
+HLE_SNAPSHOT_PATH=/tmp/high-boy.ppm \
+HLE_SNAPSHOT_MS=6500 \
+./build/hle_interactive
+```
+
+Execute os testes nativos com:
+
+```bash
+cmake --build build --target hle_tests -j
+ctest --test-dir build --output-on-failure
+```
+
+O HLE cobre a interface e os fluxos emulados do firmware. Wi-Fi, Bluetooth,
+rádio e outros comportamentos de hardware físico ainda exigem testes no
+dispositivo.
+
+
 ---
 
 ## Como Contribuir

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <pthread.h>
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
@@ -16,6 +16,7 @@ static constexpr size_t SPI_HEADER_SIZE = 4;
 static constexpr size_t SPI_MAX_PAYLOAD = 256;
 static constexpr uint8_t SPI_SYNC_BYTE = 0xAA;
 static constexpr size_t STREAM_QUEUE_LEN = 8;
+static constexpr uint8_t SPI_MAX_RESPONSE_DATA = 254;
 
 struct SPIFrame {
     uint8_t sync;
@@ -68,10 +69,10 @@ public:
 
     void reset();
     void close();
-    bool is_closed() const { return s_closed; }
+    bool is_closed() const { return s_closed.load(std::memory_order_acquire); }
 
 private:
-    bool s_closed = false;
+    std::atomic<bool> s_closed{false};
 
     // Master → Slave command queue
     SPIFrame s_command_frame;

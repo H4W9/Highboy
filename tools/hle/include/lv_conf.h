@@ -1,13 +1,11 @@
-#pragma once
+#ifndef LV_CONF_H
+#define LV_CONF_H
 
 #define LV_USE_SDL 0
 #define LV_USE_DRAW_SW 1
 #define LV_DRAW_BUF_STRIDE_ALIGN 4
 #define LV_USE_OS   LV_OS_PTHREAD
 #define LV_OS_TIMER_HANDLE pthread_t
-#define LV_TICK_CUSTOM 1
-#define LV_TICK_CUSTOM_INCLUDE <time.h>
-#define LV_TICK_CUSTOM_SYS_TIME_EXPR (clock() / (CLOCKS_PER_SEC / 1000))
 #define LV_USE_LOG 1
 #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
 
@@ -21,3 +19,5 @@
 
 #define LV_USE_ASSERT_NULL 0
 #define LV_USE_ASSERT_MALLOC 0
+
+#endif  // LV_CONF_H

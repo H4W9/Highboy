@@ -69,6 +69,56 @@ Example layout:
 ```
 
 
+## Native HLE simulator
+
+The host-level emulation (HLE) target runs the P4 UI, LVGL, host-backed storage,
+and a simulated C5 SPI bridge on Linux. It is intended for UI and firmware-flow
+development without a connected High Boy.
+
+Install a C/C++ toolchain, CMake, and the SDL2 development package, then run:
+
+```bash
+cmake -S tools/hle -B build
+cmake --build build --target hle_interactive -j
+./build/hle_interactive
+```
+
+Controls:
+
+| High Boy input | Keyboard |
+| :--- | :--- |
+| Directional buttons | Arrow keys or W/A/S/D |
+| OK | Enter, keypad Enter, or Space |
+| Back | Backspace or Escape |
+| Exit simulator | Ctrl+Q or close the window |
+
+The simulator stores `/sdcard` data under `/tmp/hle_storage` by default.
+Override the location with `HLE_STORAGE_PATH`:
+
+```bash
+HLE_STORAGE_PATH="$PWD/.hle-storage" ./build/hle_interactive
+```
+
+For deterministic, headless UI snapshots:
+
+```bash
+SDL_VIDEODRIVER=dummy \
+HLE_SNAPSHOT_PATH=/tmp/high-boy.ppm \
+HLE_SNAPSHOT_MS=6500 \
+./build/hle_interactive
+```
+
+Run the native regression suite with:
+
+```bash
+cmake --build build --target hle_tests -j
+ctest --test-dir build --output-on-failure
+```
+
+The HLE covers UI and host-emulated firmware flows. Wi-Fi, Bluetooth, radio,
+and other physical-hardware behavior still require target testing.
+
+
 ## How to Contribute
 
 Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.

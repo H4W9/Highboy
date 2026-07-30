@@ -29,6 +29,11 @@ int main(int argc, char **argv) {
     const uint32_t snapshot_ms =
         snapshot_ms_env ? static_cast<uint32_t>(std::strtoul(snapshot_ms_env, nullptr, 10)) : 0;
     bool snapshot_taken = false;
+    const char *storage_path = std::getenv("HLE_STORAGE_PATH");
+    if (storage_path != nullptr && storage_path[0] != '\0') {
+        hle_set_storage_path(storage_path);
+    }
+    int exit_code = 0;
 
     hle::SDLRenderer renderer;
     if (!renderer.init()) {
@@ -50,13 +55,16 @@ int main(int argc, char **argv) {
 
     bool quit = false;
     while (!quit) {
-        uint8_t keys_pressed, keys_held;
-        renderer.handle_events(keys_pressed, keys_held, quit);
+        uint8_t keys_held;
+        renderer.handle_events(keys_held, quit);
         hle_set_button_mask(keys_held);
         renderer.render();
 
-        if (!snapshot_taken && snapshot_path != nullptr && snapshot_ms > 0 && lv_get_tick() >= snapshot_ms) {
-            hle::Display::instance().save_ppm(snapshot_path);
+        if (!snapshot_taken && snapshot_path != nullptr && lv_get_tick() >= snapshot_ms) {
+            if (!hle::Display::instance().save_ppm(snapshot_path)) {
+                ESP_LOGE(TAG, "Failed to save snapshot to %s", snapshot_path);
+                exit_code = 1;
+            }
             snapshot_taken = true;
             quit = true;
         }
@@ -65,9 +73,8 @@ int main(int argc, char **argv) {
     }
 
     hle_kernel_shutdown();
-    hle_set_bridge_channel(nullptr);
 
     renderer.shutdown();
     ESP_LOGI(TAG, "Shutdown complete");
-    return 0;
+    return exit_code;
 }

@@ -47,7 +47,6 @@ esp_err_t nvs_set_u64(nvs_handle_t h, const char *key, uint64_t v);
 esp_err_t nvs_set_str(nvs_handle_t h, const char *key, const char *v);
 esp_err_t nvs_set_blob(nvs_handle_t h, const char *key, const void *v, size_t len);
 
-#define ESP_ERR_NVS_NOT_FOUND ((esp_err_t)0x1102)
 
 #ifdef __cplusplus
 }

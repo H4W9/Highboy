@@ -13,7 +13,8 @@ set(HLE_ASSETS_DIR "${FIRMWARE_ROOT}/firmware_p4/temp")
 # ── Collect firmware component include dirs ───────────────────────────────────
 function(collect_firmware_includes TARGET_DIR OUTPUT_VAR)
     set(_includes "")
-    file(GLOB_RECURSE _dirs LIST_DIRECTORIES true "${TARGET_DIR}/components/*/include")
+    file(GLOB_RECURSE _dirs CONFIGURE_DEPENDS LIST_DIRECTORIES true
+        "${TARGET_DIR}/components/*/include")
     foreach(_dir ${_dirs})
         list(APPEND _includes ${_dir})
     endforeach()
@@ -23,7 +24,7 @@ collect_firmware_includes("${FIRMWARE_ROOT}/firmware_c5" C5_INCLUDES)
 collect_firmware_includes("${FIRMWARE_ROOT}/firmware_p4" P4_INCLUDES)
 
 function(collect_firmware_sources TARGET_DIR PATTERN OUTPUT_VAR)
-    file(GLOB_RECURSE _sources "${TARGET_DIR}/${PATTERN}")
+    file(GLOB_RECURSE _sources CONFIGURE_DEPENDS "${TARGET_DIR}/${PATTERN}")
     set(${OUTPUT_VAR} ${_sources} PARENT_SCOPE)
 endfunction()
 
@@ -49,7 +50,7 @@ collect_firmware_sources("${FIRMWARE_ROOT}/firmware_p4" "components/Applications
 # ── Dependencies ─────────────────────────────────────────────────────────────
 include(FetchContent)
 
-file(GLOB_RECURSE HLE_ASSET_SOURCES "${FIRMWARE_ROOT}/firmware_p4/assets/*")
+file(GLOB_RECURSE HLE_ASSET_SOURCES CONFIGURE_DEPENDS "${FIRMWARE_ROOT}/firmware_p4/assets/*")
 set(HLE_ASSETS_STAMP "${HLE_ASSETS_DIR}/.hle_assets_stamp")
 add_custom_command(
     OUTPUT ${HLE_ASSETS_STAMP}
@@ -62,6 +63,11 @@ add_custom_command(
 add_custom_target(hle_assets DEPENDS ${HLE_ASSETS_STAMP})
 
 # cJSON
+set(ENABLE_CJSON_TEST OFF CACHE BOOL "Build cJSON tests" FORCE)
+set(ENABLE_CJSON_UNINSTALL OFF CACHE BOOL "Create cJSON uninstall target" FORCE)
+set(ENABLE_TARGET_EXPORT OFF CACHE BOOL "Export cJSON CMake targets" FORCE)
+set(CJSON_OVERRIDE_BUILD_SHARED_LIBS ON CACHE BOOL "Override cJSON library type" FORCE)
+set(CJSON_BUILD_SHARED_LIBS OFF CACHE BOOL "Build cJSON as a shared library" FORCE)
 FetchContent_Declare(cjson GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git GIT_TAG v1.7.18)
 FetchContent_MakeAvailable(cjson)
 
@@ -69,23 +75,37 @@ FetchContent_Declare(googletest GIT_REPOSITORY https://github.com/google/googlet
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+set(LV_BUILD_CONF_DIR "${HLE_INCLUDE_DIR}" CACHE PATH "Directory containing the HLE lv_conf.h" FORCE)
+set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "Build LVGL demos" FORCE)
+set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "Build LVGL examples" FORCE)
+set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "Build LVGL's internal ThorVG" FORCE)
 FetchContent_Declare(lvgl GIT_REPOSITORY https://github.com/lvgl/lvgl.git GIT_TAG v9.4.0)
-set(LV_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h" CACHE STRING "" FORCE)
-set(LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(lvgl)
 
-find_package(SDL2 QUIET)
+option(HLE_BUILD_INTERACTIVE "Build the SDL2 High Boy simulator" ON)
+if(HLE_BUILD_INTERACTIVE)
+    find_package(SDL2 REQUIRED)
+endif()
 
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-set(CMAKE_C_FLAGS_DEBUG "-g -O0")
-set(CMAKE_BUILD_TYPE Debug)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+endif()
 add_compile_definitions(HLE_BUILD)
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-variable
     -Wno-sign-compare -Wno-missing-field-initializers -fno-strict-aliasing)
+set(HLE_FS_WRAP_OPTIONS
+    -Wl,--wrap=fopen
+    -Wl,--wrap=stat
+    -Wl,--wrap=opendir
+    -Wl,--wrap=mkdir
+    -Wl,--wrap=access
+    -Wl,--wrap=remove
+    -Wl,--wrap=rename
+    -Wl,--wrap=unlink
+)
 
 # ── Libraries ────────────────────────────────────────────────────────────────
-file(GLOB_RECURSE HLE_SRC "${HLE_SRC_DIR}/*.cpp")
+file(GLOB_RECURSE HLE_SRC CONFIGURE_DEPENDS "${HLE_SRC_DIR}/*.cpp")
 list(FILTER HLE_SRC EXCLUDE REGEX ".*main\\.cpp$")        # main is for interactive only
 list(FILTER HLE_SRC EXCLUDE REGEX ".*lv_port.*\\.cpp$")   # lv_port needs display context
 list(FILTER HLE_SRC EXCLUDE REGEX ".*hle_kernel.*\\.cpp$") # kernel needs LVGL + bridge
@@ -121,9 +141,9 @@ add_library(firmware_p4 STATIC
     ${P4_APP} ${P4_APP_DEEP} ${P4_APP_DEEP2}
 )
 target_include_directories(firmware_p4 SYSTEM PRIVATE ${HLE_INCLUDE_DIR} ${P4_INCLUDES})
-target_include_directories(firmware_p4 SYSTEM PRIVATE ${lvgl_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
-target_include_directories(firmware_p4 SYSTEM PRIVATE ${cjson_SOURCE_DIR})
+target_include_directories(firmware_p4 SYSTEM PRIVATE ${cjson_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
 target_compile_options(firmware_p4 PRIVATE -Wno-implicit-function-declaration)
+target_link_libraries(firmware_p4 PUBLIC lvgl)
 
 # P4: exclude hardware drivers that need deep external stacks
 get_target_property(_p4_srcs firmware_p4 SOURCES)
@@ -155,15 +175,16 @@ set_target_properties(firmware_p4 PROPERTIES SOURCES "${_p4_srcs}")
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 enable_testing()
-file(GLOB_RECURSE TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp")
+file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp")
 add_executable(hle_tests ${TEST_SOURCES})
 target_link_libraries(hle_tests PRIVATE hle_shims GTest::gtest_main pthread)
 target_include_directories(hle_tests PRIVATE ${HLE_INCLUDE_DIR})
+target_link_options(hle_tests PRIVATE ${HLE_FS_WRAP_OPTIONS})
 include(GoogleTest)
 gtest_discover_tests(hle_tests)
 
 # ── Interactive ──────────────────────────────────────────────────────────────
-if(SDL2_FOUND)
+if(HLE_BUILD_INTERACTIVE)
     set(INTERACTIVE_SRC
         "${HLE_SRC_DIR}/main.cpp"
         "${HLE_SRC_DIR}/hal/lv_port_disp_hle.cpp"
@@ -173,25 +194,11 @@ if(SDL2_FOUND)
         "${HLE_SRC_DIR}/hal/hle_stub_ui_wifi.cpp"
         "${HLE_SRC_DIR}/hal/hle_stub_dispatchers.cpp"
     )
-    add_executable(hle_interactive EXCLUDE_FROM_ALL ${INTERACTIVE_SRC})
+    add_executable(hle_interactive ${INTERACTIVE_SRC})
     target_include_directories(hle_interactive PRIVATE ${HLE_INCLUDE_DIR})
     target_include_directories(hle_interactive SYSTEM PRIVATE ${P4_INCLUDES} ${lvgl_SOURCE_DIR} ${lvgl_SOURCE_DIR}/src)
-    target_compile_definitions(hle_interactive PRIVATE
-        -DLV_CONF_INCLUDE_SIMPLE
-        -DLV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h"
-        -DLV_LVGL_H_INCLUDE_SIMPLE
-        -DHLE_ASSETS_DIR="${HLE_ASSETS_DIR}"
-    )
-    target_link_options(hle_interactive PRIVATE
-        -Wl,--wrap=fopen
-        -Wl,--wrap=stat
-        -Wl,--wrap=opendir
-        -Wl,--wrap=mkdir
-        -Wl,--wrap=access
-        -Wl,--wrap=remove
-        -Wl,--wrap=rename
-        -Wl,--wrap=unlink
-    )
+    target_compile_definitions(hle_interactive PRIVATE HLE_ASSETS_DIR="${HLE_ASSETS_DIR}")
+    target_link_options(hle_interactive PRIVATE ${HLE_FS_WRAP_OPTIONS})
     target_link_libraries(hle_interactive PRIVATE hle_shims firmware_p4 firmware_c5 lvgl SDL2::SDL2 pthread cjson)
     add_dependencies(hle_interactive hle_assets)
     message(STATUS "SDL2 found — hle_interactive enabled")

@@ -14,13 +14,12 @@ SPIBridgeChannel::~SPIBridgeChannel() {
 
 void SPIBridgeChannel::close() {
     {
-        std::lock_guard<std::mutex> lock1(s_cmd_mutex);
-        std::lock_guard<std::mutex> lock2(s_resp_mutex);
-        std::lock_guard<std::mutex> lock3(s_irq_mutex);
-        s_closed = true;
+        std::scoped_lock lock(s_cmd_mutex, s_resp_mutex, s_irq_mutex, s_stream_mutex);
+        s_closed.store(true, std::memory_order_release);
         s_has_command = false;
         s_has_response = false;
-        s_irq_raised = true;
+        s_irq_raised = false;
+        s_stream_queue.clear();
     }
     s_cmd_cv.notify_all();
     s_resp_cv.notify_all();
@@ -28,12 +27,17 @@ void SPIBridgeChannel::close() {
 }
 
 void SPIBridgeChannel::reset() {
-    std::lock_guard<std::mutex> lock1(s_cmd_mutex);
-    std::lock_guard<std::mutex> lock2(s_resp_mutex);
-    std::lock_guard<std::mutex> lock3(s_irq_mutex);
+    std::scoped_lock lock(s_cmd_mutex, s_resp_mutex, s_irq_mutex, s_stream_mutex);
+    if (s_closed.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    s_command_frame = SPIFrame{};
+    s_response_frame = SPIFrame{};
     s_has_command = false;
     s_has_response = false;
     s_irq_raised = false;
+    s_stream_queue.clear();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -43,26 +47,33 @@ void SPIBridgeChannel::reset() {
 void SPIBridgeChannel::master_send_command(uint8_t cmd_id, const uint8_t *payload,
                                             uint8_t payload_len) {
     std::lock_guard<std::mutex> lock(s_cmd_mutex);
+    if (s_closed.load(std::memory_order_acquire) || (payload_len > 0 && payload == nullptr)) {
+        return;
+    }
+
     s_command_frame.build_header(SPI_TYPE_CMD, cmd_id, payload_len);
-    if (payload && payload_len > 0) {
+    if (payload_len > 0) {
         memcpy(s_command_frame.payload, payload, payload_len);
     }
     s_has_command = true;
-    s_cmd_cv.notify_all();
+    s_cmd_cv.notify_one();
 }
 
 bool SPIBridgeChannel::master_receive_response(uint8_t &out_id, uint8_t *out_payload,
                                                 uint8_t &out_len, uint32_t timeout_ms) {
     std::unique_lock<std::mutex> lock(s_resp_mutex);
-    if (!s_resp_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
-                            [this] { return s_has_response || s_closed; })) {
+    if (!s_resp_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this] {
+            return s_has_response || s_closed.load(std::memory_order_acquire);
+        })) {
         return false;
     }
-    if (!s_has_response) return false;
+    if (s_closed.load(std::memory_order_acquire) || !s_has_response) {
+        return false;
+    }
 
     out_id = s_response_frame.id;
     out_len = s_response_frame.length;
-    if (out_payload && out_len > 0) {
+    if (out_payload != nullptr && out_len > 0) {
         memcpy(out_payload, s_response_frame.payload, out_len);
     }
     s_has_response = false;
@@ -76,12 +87,16 @@ bool SPIBridgeChannel::master_receive_response(uint8_t &out_id, uint8_t *out_pay
 bool SPIBridgeChannel::slave_wait_command(uint8_t &out_cmd_id, uint8_t *out_payload,
                                            uint8_t &out_len) {
     std::unique_lock<std::mutex> lock(s_cmd_mutex);
-    s_cmd_cv.wait(lock, [this] { return s_has_command || s_closed; });
-    if (!s_has_command) return false;
+    s_cmd_cv.wait(lock, [this] {
+        return s_has_command || s_closed.load(std::memory_order_acquire);
+    });
+    if (s_closed.load(std::memory_order_acquire) || !s_has_command) {
+        return false;
+    }
 
     out_cmd_id = s_command_frame.id;
     out_len = s_command_frame.length;
-    if (out_payload && out_len > 0) {
+    if (out_payload != nullptr && out_len > 0) {
         memcpy(out_payload, s_command_frame.payload, out_len);
     }
     s_has_command = false;
@@ -90,23 +105,29 @@ bool SPIBridgeChannel::slave_wait_command(uint8_t &out_cmd_id, uint8_t *out_payl
 
 void SPIBridgeChannel::slave_send_response(uint8_t cmd_id, uint8_t status,
                                             const uint8_t *payload, uint8_t payload_len) {
-    if (payload_len > SPI_MAX_PAYLOAD - 1) {
-        payload_len = static_cast<uint8_t>(SPI_MAX_PAYLOAD - 1);
+    if (payload_len > SPI_MAX_RESPONSE_DATA) {
+        payload_len = SPI_MAX_RESPONSE_DATA;
     }
+
     std::lock_guard<std::mutex> lock(s_resp_mutex);
+    if (s_closed.load(std::memory_order_acquire) || (payload_len > 0 && payload == nullptr)) {
+        return;
+    }
+
     s_response_frame.build_header(SPI_TYPE_RESP, cmd_id, payload_len + 1);
     s_response_frame.payload[0] = status;
-    if (payload && payload_len > 0) {
+    if (payload_len > 0) {
         memcpy(s_response_frame.payload + 1, payload, payload_len);
     }
     s_has_response = true;
-    s_resp_cv.notify_all();
+    s_resp_cv.notify_one();
 }
 
 void SPIBridgeChannel::slave_send_stream(uint8_t stream_id, const uint8_t *payload,
                                           uint8_t payload_len) {
-    stream_push(stream_id, payload, payload_len);
-    slave_notify_irq();
+    if (stream_push(stream_id, payload, payload_len)) {
+        slave_notify_irq();
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -115,25 +136,36 @@ void SPIBridgeChannel::slave_send_stream(uint8_t stream_id, const uint8_t *paylo
 
 bool SPIBridgeChannel::stream_push(uint8_t stream_id, const uint8_t *data, size_t len) {
     std::lock_guard<std::mutex> lock(s_stream_mutex);
-    if (s_stream_queue.size() >= STREAM_QUEUE_LEN) return false;
-    if (len > SPI_MAX_PAYLOAD) len = SPI_MAX_PAYLOAD;
+    if (s_closed.load(std::memory_order_acquire) || s_stream_queue.size() >= STREAM_QUEUE_LEN ||
+        (len > 0 && data == nullptr)) {
+        return false;
+    }
+    if (len > SPI_MAX_PAYLOAD) {
+        len = SPI_MAX_PAYLOAD;
+    }
 
-    StreamItem item;
+    StreamItem item{};
     item.stream_id = stream_id;
     item.len = len;
-    memcpy(item.data, data, len);
+    if (len > 0) {
+        memcpy(item.data, data, len);
+    }
     s_stream_queue.push_back(item);
     return true;
 }
 
 bool SPIBridgeChannel::stream_pop(uint8_t &out_stream_id, uint8_t *out_data, size_t &out_len) {
     std::lock_guard<std::mutex> lock(s_stream_mutex);
-    if (s_stream_queue.empty()) return false;
+    if (s_closed.load(std::memory_order_acquire) || s_stream_queue.empty()) {
+        return false;
+    }
 
     auto &item = s_stream_queue.front();
     out_stream_id = item.stream_id;
     out_len = item.len;
-    if (out_data) memcpy(out_data, item.data, item.len);
+    if (out_data != nullptr && item.len > 0) {
+        memcpy(out_data, item.data, item.len);
+    }
     s_stream_queue.pop_front();
     return true;
 }
@@ -144,19 +176,27 @@ bool SPIBridgeChannel::stream_pop(uint8_t &out_stream_id, uint8_t *out_data, siz
 
 void SPIBridgeChannel::slave_notify_irq() {
     std::lock_guard<std::mutex> lock(s_irq_mutex);
+    if (s_closed.load(std::memory_order_acquire)) {
+        return;
+    }
+
     s_irq_raised = true;
-    s_irq_cv.notify_all();
+    s_irq_cv.notify_one();
 }
 
 bool SPIBridgeChannel::master_wait_irq(uint32_t timeout_ms) {
     std::unique_lock<std::mutex> lock(s_irq_mutex);
-    if (!s_irq_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
-                           [this] { return s_irq_raised || s_closed; })) {
+    if (!s_irq_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this] {
+            return s_irq_raised || s_closed.load(std::memory_order_acquire);
+        })) {
         return false;
     }
-    bool raised = s_irq_raised;
+    if (s_closed.load(std::memory_order_acquire)) {
+        return false;
+    }
+
     s_irq_raised = false;
-    return raised;
+    return true;
 }
 
 }  // namespace hle
