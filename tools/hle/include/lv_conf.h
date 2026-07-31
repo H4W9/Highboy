@@ -8,6 +8,7 @@
 #define LV_OS_TIMER_HANDLE pthread_t
 #define LV_USE_LOG 1
 #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
+#define LV_USE_QRCODE 1
 
 #define LV_FONT_MONTSERRAT_12 1
 #define LV_FONT_MONTSERRAT_14 1

@@ -44,14 +44,14 @@ void SPIBridgeChannel::reset() {
 // Master (P4) side
 // ═══════════════════════════════════════════════════════════════════════════════
 
-void SPIBridgeChannel::master_send_command(uint8_t cmd_id, const uint8_t *payload,
-                                            uint8_t payload_len) {
+void SPIBridgeChannel::master_send_command(uint16_t command_id, const uint8_t *payload,
+                                           uint8_t payload_len) {
     std::lock_guard<std::mutex> lock(s_cmd_mutex);
     if (s_closed.load(std::memory_order_acquire) || (payload_len > 0 && payload == nullptr)) {
         return;
     }
 
-    s_command_frame.build_header(SPI_TYPE_CMD, cmd_id, payload_len);
+    s_command_frame.build_header(SPI_TYPE_CMD, command_id, payload_len);
     if (payload_len > 0) {
         memcpy(s_command_frame.payload, payload, payload_len);
     }
@@ -59,8 +59,9 @@ void SPIBridgeChannel::master_send_command(uint8_t cmd_id, const uint8_t *payloa
     s_cmd_cv.notify_one();
 }
 
-bool SPIBridgeChannel::master_receive_response(uint8_t &out_id, uint8_t *out_payload,
-                                                uint8_t &out_len, uint32_t timeout_ms) {
+bool SPIBridgeChannel::master_receive_response(uint16_t &out_command_id,
+                                               uint8_t *out_payload, uint8_t &out_len,
+                                               uint32_t timeout_ms) {
     std::unique_lock<std::mutex> lock(s_resp_mutex);
     if (!s_resp_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this] {
             return s_has_response || s_closed.load(std::memory_order_acquire);
@@ -71,7 +72,7 @@ bool SPIBridgeChannel::master_receive_response(uint8_t &out_id, uint8_t *out_pay
         return false;
     }
 
-    out_id = s_response_frame.id;
+    out_command_id = s_response_frame.command_id();
     out_len = s_response_frame.length;
     if (out_payload != nullptr && out_len > 0) {
         memcpy(out_payload, s_response_frame.payload, out_len);
@@ -84,8 +85,8 @@ bool SPIBridgeChannel::master_receive_response(uint8_t &out_id, uint8_t *out_pay
 // Slave (C5) side
 // ═══════════════════════════════════════════════════════════════════════════════
 
-bool SPIBridgeChannel::slave_wait_command(uint8_t &out_cmd_id, uint8_t *out_payload,
-                                           uint8_t &out_len) {
+bool SPIBridgeChannel::slave_wait_command(uint16_t &out_command_id, uint8_t *out_payload,
+                                          uint8_t &out_len) {
     std::unique_lock<std::mutex> lock(s_cmd_mutex);
     s_cmd_cv.wait(lock, [this] {
         return s_has_command || s_closed.load(std::memory_order_acquire);
@@ -94,7 +95,7 @@ bool SPIBridgeChannel::slave_wait_command(uint8_t &out_cmd_id, uint8_t *out_payl
         return false;
     }
 
-    out_cmd_id = s_command_frame.id;
+    out_command_id = s_command_frame.command_id();
     out_len = s_command_frame.length;
     if (out_payload != nullptr && out_len > 0) {
         memcpy(out_payload, s_command_frame.payload, out_len);
@@ -103,8 +104,8 @@ bool SPIBridgeChannel::slave_wait_command(uint8_t &out_cmd_id, uint8_t *out_payl
     return true;
 }
 
-void SPIBridgeChannel::slave_send_response(uint8_t cmd_id, uint8_t status,
-                                            const uint8_t *payload, uint8_t payload_len) {
+void SPIBridgeChannel::slave_send_response(uint16_t command_id, uint8_t status,
+                                           const uint8_t *payload, uint8_t payload_len) {
     if (payload_len > SPI_MAX_RESPONSE_DATA) {
         payload_len = SPI_MAX_RESPONSE_DATA;
     }
@@ -114,7 +115,7 @@ void SPIBridgeChannel::slave_send_response(uint8_t cmd_id, uint8_t status,
         return;
     }
 
-    s_response_frame.build_header(SPI_TYPE_RESP, cmd_id, payload_len + 1);
+    s_response_frame.build_header(SPI_TYPE_RESP, command_id, payload_len + 1);
     s_response_frame.payload[0] = status;
     if (payload_len > 0) {
         memcpy(s_response_frame.payload + 1, payload, payload_len);
@@ -123,8 +124,8 @@ void SPIBridgeChannel::slave_send_response(uint8_t cmd_id, uint8_t status,
     s_resp_cv.notify_one();
 }
 
-void SPIBridgeChannel::slave_send_stream(uint8_t stream_id, const uint8_t *payload,
-                                          uint8_t payload_len) {
+void SPIBridgeChannel::slave_send_stream(uint16_t stream_id, const uint8_t *payload,
+                                         uint8_t payload_len) {
     if (stream_push(stream_id, payload, payload_len)) {
         slave_notify_irq();
     }
@@ -134,7 +135,7 @@ void SPIBridgeChannel::slave_send_stream(uint8_t stream_id, const uint8_t *paylo
 // Stream queue
 // ═══════════════════════════════════════════════════════════════════════════════
 
-bool SPIBridgeChannel::stream_push(uint8_t stream_id, const uint8_t *data, size_t len) {
+bool SPIBridgeChannel::stream_push(uint16_t stream_id, const uint8_t *data, size_t len) {
     std::lock_guard<std::mutex> lock(s_stream_mutex);
     if (s_closed.load(std::memory_order_acquire) || s_stream_queue.size() >= STREAM_QUEUE_LEN ||
         (len > 0 && data == nullptr)) {
@@ -154,7 +155,8 @@ bool SPIBridgeChannel::stream_push(uint8_t stream_id, const uint8_t *data, size_
     return true;
 }
 
-bool SPIBridgeChannel::stream_pop(uint8_t &out_stream_id, uint8_t *out_data, size_t &out_len) {
+bool SPIBridgeChannel::stream_pop(uint16_t &out_stream_id, uint8_t *out_data,
+                                  size_t &out_len) {
     std::lock_guard<std::mutex> lock(s_stream_mutex);
     if (s_closed.load(std::memory_order_acquire) || s_stream_queue.empty()) {
         return false;

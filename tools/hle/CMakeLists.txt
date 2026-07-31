@@ -118,11 +118,14 @@ add_library(firmware_c5 STATIC
     ${C5_CORE_SRC} ${C5_MAIN_SRC} ${C5_DRV} ${C5_DRV_DEEP} ${C5_SVC} ${C5_SVC_DEEP}
 )
 
-# C5 Bluetooth/WiFi services need full NimBLE/lwIP host stacks (not shimmable).
-# Keep excluding their .c files — P4 SPI proxy clients are compiled instead.
+# C5 hardware transports and network services require ESP-IDF/NimBLE/lwIP stacks.
+# HLE provides its own in-memory SPI bridge and compiles P4 proxy clients instead.
 get_target_property(_c5_srcs firmware_c5 SOURCES)
 list(FILTER _c5_srcs EXCLUDE REGEX ".*bluetooth_service\\.c$")
 list(FILTER _c5_srcs EXCLUDE REGEX ".*wifi_service\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/host_link/host_link_gatt\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/spi_bridge/spi_bridge\\.c$")
+list(FILTER _c5_srcs EXCLUDE REGEX ".*/ota/.*\\.c$")
 list(FILTER _c5_srcs EXCLUDE REGEX ".*/console/.*\\.c$")
 list(FILTER _c5_srcs EXCLUDE REGEX ".*/dns_server/.*\\.c$")
 list(FILTER _c5_srcs EXCLUDE REGEX ".*/esp_now/.*\\.c$")
@@ -145,12 +148,13 @@ target_include_directories(firmware_p4 SYSTEM PRIVATE ${cjson_SOURCE_DIR} ${lvgl
 target_compile_options(firmware_p4 PRIVATE -Wno-implicit-function-declaration)
 target_link_libraries(firmware_p4 PUBLIC lvgl)
 
-# P4: exclude hardware drivers that need deep external stacks
+# P4: exclude hardware drivers and transports that need deep external stacks
 get_target_property(_p4_srcs firmware_p4 SOURCES)
 list(FILTER _p4_srcs EXCLUDE REGEX ".*spi_bridge_phy.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*c5_flasher.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*bad_usb.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*LoRa/.*\\.c$")
+list(FILTER _p4_srcs EXCLUDE REGEX ".*/Service/host_link/.*\\.c$")
 # WiFi application backends (need esp_wifi/lwIP) and their UI screens
 list(FILTER _p4_srcs EXCLUDE REGEX ".*/Applications/wifi/.*\\.c$")
 list(FILTER _p4_srcs EXCLUDE REGEX ".*/ui/screens/wifi/.*\\.c$")

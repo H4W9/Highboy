@@ -15,6 +15,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -62,6 +63,10 @@ vprintf_like_t esp_log_set_vprintf(vprintf_like_t func) {
 uint64_t esp_timer_get_time(void) {
     auto now = std::chrono::steady_clock::now().time_since_epoch();
     return std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+}
+
+void esp_rom_delay_us(uint32_t us) {
+    std::this_thread::sleep_for(std::chrono::microseconds(us));
 }
 
 esp_err_t esp_timer_create(const esp_timer_create_args_t *args, esp_timer_handle_t *handle) {
@@ -950,18 +955,24 @@ static spi_header_t s_pending_cmd_header;
 static uint8_t s_pending_cmd_payload[SPI_MAX_PAYLOAD];
 static bool s_has_pending_cmd = false;
 static uint32_t s_pending_timeout_ms = 0;
+static bool s_phy_uses_irq = true;
 
 extern "C" {
 
-esp_err_t spi_bridge_phy_init(void) {
+esp_err_t spi_bridge_phy_init_ex(bool setup_irq) {
     std::lock_guard<std::recursive_mutex> lock(s_phy_mutex);
     if (hle_get_bridge_channel() == nullptr) {
         return ESP_ERR_INVALID_STATE;
     }
     s_has_pending_cmd = false;
     s_pending_timeout_ms = 0;
-    ESP_LOGI("SPI_PHY", "PHY init");
+    s_phy_uses_irq = setup_irq;
+    ESP_LOGI("SPI_PHY", "PHY init (%s)", setup_irq ? "IRQ" : "poll");
     return ESP_OK;
+}
+
+esp_err_t spi_bridge_phy_init(void) {
+    return spi_bridge_phy_init_ex(true);
 }
 esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
     std::lock_guard<std::recursive_mutex> lock(s_phy_mutex);
@@ -985,9 +996,11 @@ esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size
         if (header->length > 0) {
             memcpy(s_pending_cmd_payload, tx_data + sizeof(spi_header_t), header->length);
         }
+        const uint16_t command_id = spi_header_cmd(header);
         s_has_pending_cmd = true;
-        ESP_LOGI("SPI_PHY", "TX cmd 0x%02X len=%d", header->id, header->length);
-        channel->master_send_command(header->id, s_pending_cmd_payload, header->length);
+        ESP_LOGI("SPI_PHY", "TX cmd 0x%04X len=%d",
+                 static_cast<unsigned int>(command_id), header->length);
+        channel->master_send_command(command_id, s_pending_cmd_payload, header->length);
         return ESP_OK;
     }
 
@@ -996,20 +1009,23 @@ esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size
         return ESP_ERR_INVALID_STATE;
     }
 
-    uint8_t resp_id = 0;
+    uint16_t resp_id = 0;
     uint8_t resp_payload[SPI_MAX_PAYLOAD];
     uint8_t resp_len = 0;
-    ESP_LOGI("SPI_PHY", "RX waiting for response (timeout=%" PRIu32 " ms)",
-             s_pending_timeout_ms);
     bool is_ok =
         channel->master_receive_response(resp_id, resp_payload, resp_len, s_pending_timeout_ms);
-    ESP_LOGI("SPI_PHY", "RX response ok=%d id=0x%02X len=%d", is_ok, resp_id, resp_len);
-    s_has_pending_cmd = false;
-
     memset(rx_data, 0, len);
     if (!is_ok) {
+        if (!s_phy_uses_irq) {
+            return ESP_OK;
+        }
+        s_has_pending_cmd = false;
         return ESP_ERR_TIMEOUT;
     }
+
+    ESP_LOGI("SPI_PHY", "RX response id=0x%04X len=%d",
+             static_cast<unsigned int>(resp_id), resp_len);
+    s_has_pending_cmd = false;
 
     const size_t total = sizeof(spi_header_t) + resp_len;
     if (len < total) {
@@ -1019,7 +1035,7 @@ esp_err_t spi_bridge_phy_transmit(const uint8_t *tx_data, uint8_t *rx_data, size
     spi_header_t resp_header{};
     resp_header.sync = SPI_SYNC_BYTE;
     resp_header.type = SPI_TYPE_RESP;
-    resp_header.id = resp_id;
+    spi_header_set_cmd(&resp_header, resp_id);
     resp_header.length = resp_len;
     memcpy(rx_data, &resp_header, sizeof(resp_header));
     if (resp_len > 0) {
@@ -1060,41 +1076,41 @@ esp_err_t spi_slave_transmit(int host, spi_slave_transaction_t *trans, int timeo
     }
 
     if (trans->tx_buffer == nullptr && trans->rx_buffer != nullptr) {
-        uint8_t cmd_id;
+        uint16_t command_id;
         uint8_t payload[SPI_MAX_PAYLOAD];
-        uint8_t len;
-        if (!channel->slave_wait_command(cmd_id, payload, len)) {
+        uint8_t payload_len;
+        if (!channel->slave_wait_command(command_id, payload, payload_len)) {
             return ESP_FAIL;
         }
 
-        auto *rx = static_cast<uint8_t *>(trans->rx_buffer);
-        memset(rx, 0, B_FRAME);
-        rx[0] = SPI_SYNC_BYTE;
-        rx[1] = SPI_TYPE_CMD;
-        rx[2] = cmd_id;
-        rx[3] = len;
-        if (len > 0) {
-            memcpy(rx + sizeof(spi_header_t), payload, len);
+        auto *header = static_cast<spi_header_t *>(trans->rx_buffer);
+        memset(header, 0, B_FRAME);
+        header->sync = SPI_SYNC_BYTE;
+        header->type = SPI_TYPE_CMD;
+        spi_header_set_cmd(header, command_id);
+        header->length = payload_len;
+        if (payload_len > 0) {
+            memcpy(reinterpret_cast<uint8_t *>(header) + sizeof(*header), payload, payload_len);
         }
     } else if (trans->tx_buffer != nullptr && trans->rx_buffer == nullptr) {
-        const auto *tx = static_cast<const uint8_t *>(trans->tx_buffer);
-        const uint8_t sync = tx[0];
-        const uint8_t type = tx[1];
-        const uint8_t cmd_id = tx[2];
-        const uint8_t payload_len = tx[3];
-        if (sync != SPI_SYNC_BYTE) {
+        const auto *header = static_cast<const spi_header_t *>(trans->tx_buffer);
+        if (header->sync != SPI_SYNC_BYTE) {
             return ESP_FAIL;
         }
-        if (type == SPI_TYPE_RESP) {
-            const uint8_t status = payload_len > 0 ? tx[4] : 0;
-            const uint8_t data_len = payload_len > 0 ? payload_len - 1 : 0;
-            channel->slave_send_response(cmd_id, status, tx + 5, data_len);
-        } else if (type == SPI_TYPE_STREAM) {
-            channel->slave_send_stream(cmd_id, tx + sizeof(spi_header_t), payload_len);
+
+        const uint16_t command_id = spi_header_cmd(header);
+        const auto *payload =
+            reinterpret_cast<const uint8_t *>(header) + sizeof(spi_header_t);
+        if (header->type == SPI_TYPE_RESP) {
+            const uint8_t status = header->length > 0 ? payload[0] : 0;
+            const uint8_t data_len = header->length > 0 ? header->length - 1 : 0;
+            channel->slave_send_response(command_id, status, payload + 1, data_len);
+            channel->slave_notify_irq();
+        } else if (header->type == SPI_TYPE_STREAM) {
+            channel->slave_send_stream(command_id, payload, header->length);
         } else {
             return ESP_ERR_INVALID_ARG;
         }
-        channel->slave_notify_irq();
     } else {
         return ESP_ERR_INVALID_ARG;
     }

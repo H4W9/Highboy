@@ -12,6 +12,26 @@ extern "C" {
 esp_err_t ota_post_boot_check(void) { return ESP_OK; }
 esp_err_t console_service_init(void) { return ESP_OK; }
 
+// Companion USB/BLE transports need TinyUSB and C5 GATT. Keep the pairing UI
+// available while reporting that no physical companion transport exists in HLE.
+esp_err_t host_link_state_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t host_link_stream_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t host_link_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t host_link_cdc_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t host_link_log_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t host_link_c5log_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t host_link_ble_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t host_link_ble_start(void) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t host_link_ble_stop(void) { return ESP_ERR_NOT_SUPPORTED; }
+bool host_link_ble_is_connected(void) { return false; }
+bool host_link_ble_is_active(void) { return false; }
+esp_err_t host_link_sec_get_psk_hex(char *out, size_t out_cap) {
+    if (out != nullptr && out_cap > 0) {
+        out[0] = '\0';
+    }
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 esp_err_t c5_flasher_init(void) { return ESP_ERR_NOT_SUPPORTED; }
 void c5_flasher_enter_bootloader(void) {}
 void c5_flasher_reset_normal(void) {}

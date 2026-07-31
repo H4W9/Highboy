@@ -127,7 +127,7 @@ static std::thread s_bridge_worker;
 static void c5_bridge_worker(hle::SPIBridgeChannel *channel) {
     ESP_LOGI(TAG, "C5 bridge worker started");
     while (!channel->is_closed()) {
-        uint8_t cmd_id;
+        uint16_t cmd_id;
         uint8_t payload[256];
         uint8_t payload_len;
         if (!channel->slave_wait_command(cmd_id, payload, payload_len)) {

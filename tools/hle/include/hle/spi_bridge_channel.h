@@ -11,9 +11,10 @@
 
 namespace hle {
 
-static constexpr size_t SPI_FRAME_SIZE = 260;  // 4 header + 256 payload
-static constexpr size_t SPI_HEADER_SIZE = 4;
+static constexpr size_t SPI_HEADER_SIZE = 5;
 static constexpr size_t SPI_MAX_PAYLOAD = 256;
+static constexpr size_t SPI_FRAME_SIZE =
+    (SPI_HEADER_SIZE + SPI_MAX_PAYLOAD + 3) & ~static_cast<size_t>(3);
 static constexpr uint8_t SPI_SYNC_BYTE = 0xAA;
 static constexpr size_t STREAM_QUEUE_LEN = 8;
 static constexpr uint8_t SPI_MAX_RESPONSE_DATA = 254;
@@ -21,18 +22,26 @@ static constexpr uint8_t SPI_MAX_RESPONSE_DATA = 254;
 struct SPIFrame {
     uint8_t sync;
     uint8_t type;
-    uint8_t id;
+    uint8_t category;
+    uint8_t op;
     uint8_t length;
     uint8_t payload[SPI_MAX_PAYLOAD];
 
-    SPIFrame() : sync(0), type(0), id(0), length(0) { memset(payload, 0, sizeof(payload)); }
+    SPIFrame() : sync(0), type(0), category(0), op(0), length(0) {
+        memset(payload, 0, sizeof(payload));
+    }
 
     bool is_valid() const { return sync == SPI_SYNC_BYTE; }
 
-    void build_header(uint8_t frame_type, uint8_t cmd_id, uint8_t payload_len) {
+    uint16_t command_id() const {
+        return static_cast<uint16_t>((static_cast<uint16_t>(category) << 8) | op);
+    }
+
+    void build_header(uint8_t frame_type, uint16_t command_id, uint8_t payload_len) {
         sync = SPI_SYNC_BYTE;
         type = frame_type;
-        id = cmd_id;
+        category = static_cast<uint8_t>(command_id >> 8);
+        op = static_cast<uint8_t>(command_id);
         length = payload_len;
     }
 };
@@ -44,21 +53,22 @@ public:
 
     // ── Master (P4) side ─────────────────────────────────────────────────
 
-    void master_send_command(uint8_t cmd_id, const uint8_t *payload, uint8_t payload_len);
-    bool master_receive_response(uint8_t &out_id, uint8_t *out_payload, uint8_t &out_len,
-                                 uint32_t timeout_ms);
+    void master_send_command(uint16_t command_id, const uint8_t *payload, uint8_t payload_len);
+    bool master_receive_response(uint16_t &out_command_id, uint8_t *out_payload,
+                                 uint8_t &out_len, uint32_t timeout_ms);
 
     // ── Slave (C5) side ──────────────────────────────────────────────────
 
-    bool slave_wait_command(uint8_t &out_cmd_id, uint8_t *out_payload, uint8_t &out_len);
-    void slave_send_response(uint8_t cmd_id, uint8_t status, const uint8_t *payload,
+    bool slave_wait_command(uint16_t &out_command_id, uint8_t *out_payload,
+                            uint8_t &out_len);
+    void slave_send_response(uint16_t command_id, uint8_t status, const uint8_t *payload,
                              uint8_t payload_len);
-    void slave_send_stream(uint8_t stream_id, const uint8_t *payload, uint8_t payload_len);
+    void slave_send_stream(uint16_t stream_id, const uint8_t *payload, uint8_t payload_len);
 
     // ── Stream queue (C5 → P4) ───────────────────────────────────────────
 
-    bool stream_push(uint8_t stream_id, const uint8_t *data, size_t len);
-    bool stream_pop(uint8_t &out_stream_id, uint8_t *out_data, size_t &out_len);
+    bool stream_push(uint16_t stream_id, const uint8_t *data, size_t len);
+    bool stream_pop(uint16_t &out_stream_id, uint8_t *out_data, size_t &out_len);
 
     // ── IRQ simulation ───────────────────────────────────────────────────
 
@@ -93,7 +103,7 @@ private:
 
     // Stream queue (C5 pushes, P4 pops)
     struct StreamItem {
-        uint8_t stream_id;
+        uint16_t stream_id;
         uint8_t data[SPI_MAX_PAYLOAD];
         size_t len;
     };
