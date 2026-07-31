@@ -75,7 +75,28 @@ The host-level emulation (HLE) target runs the P4 UI, LVGL, host-backed storage,
 and a simulated C5 SPI bridge on Linux. It is intended for UI and firmware-flow
 development without a connected High Boy.
 
-Install a C/C++ toolchain, CMake, and the SDL2 development package, then run:
+### Requirements
+
+- Linux
+- CMake 3.16 or newer
+- A C11/C++17 toolchain
+- Git and the SDL2 development headers
+- Internet access during the first configure, which downloads LVGL, cJSON, and
+  GoogleTest
+
+On Ubuntu or Debian:
+
+```bash
+sudo apt update
+sudo apt install build-essential cmake git libsdl2-dev
+```
+
+ESP-IDF, an ESP32 toolchain, and connected High Boy hardware are not required
+for the native simulator.
+
+### Build and run
+
+Run these commands from the repository root:
 
 ```bash
 cmake -S tools/hle -B build
@@ -83,7 +104,11 @@ cmake --build build --target hle_interactive -j
 ./build/hle_interactive
 ```
 
-Controls:
+The first build also converts the assets under `firmware_p4/assets`. After UI
+or firmware changes, rerun the `cmake --build` command and restart the
+simulator; reconfiguration is only needed after CMake or source-layout changes.
+
+### Controls
 
 | High Boy input | Keyboard |
 | :--- | :--- |
@@ -92,12 +117,19 @@ Controls:
 | Back | Backspace or Escape |
 | Exit simulator | Ctrl+Q or close the window |
 
+### Storage
+
 The simulator stores `/sdcard` data under `/tmp/hle_storage` by default.
 Override the location with `HLE_STORAGE_PATH`:
 
 ```bash
-HLE_STORAGE_PATH="$PWD/.hle-storage" ./build/hle_interactive
+HLE_STORAGE_PATH="$HOME/.local/state/tentacleos-hle" ./build/hle_interactive
 ```
+
+Point `HLE_STORAGE_PATH` at a new empty directory to exercise the firmware's
+first-boot flow again.
+
+### Headless snapshots
 
 For deterministic, headless UI snapshots:
 
@@ -108,12 +140,19 @@ HLE_SNAPSHOT_MS=6500 \
 ./build/hle_interactive
 ```
 
+The snapshot example renders for 6500 ms, writes a PPM image, and exits. It is
+also suitable for CI or SSH sessions without a display server.
+
+### Tests
+
 Run the native regression suite with:
 
 ```bash
 cmake --build build --target hle_tests -j
 ctest --test-dir build --output-on-failure
 ```
+
+### Scope and limitations
 
 The HLE covers UI and host-emulated firmware flows. Wi-Fi, Bluetooth, radio,
 and other physical-hardware behavior still require target testing.

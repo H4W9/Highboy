@@ -76,7 +76,28 @@ O alvo de emulação de alto nível (HLE) executa a interface do P4, o LVGL, o
 armazenamento no host e uma ponte SPI simulada para o C5 no Linux. Ele permite
 desenvolver a interface e os fluxos do firmware sem conectar um High Boy.
 
-Instale um compilador C/C++, o CMake e o pacote de desenvolvimento do SDL2:
+### Requisitos
+
+- Linux
+- CMake 3.16 ou mais recente
+- Um compilador compatível com C11/C++17
+- Git e os cabeçalhos de desenvolvimento do SDL2
+- Acesso à internet durante a primeira configuração, que baixa LVGL, cJSON e
+  GoogleTest
+
+No Ubuntu ou Debian:
+
+```bash
+sudo apt update
+sudo apt install build-essential cmake git libsdl2-dev
+```
+
+O simulador nativo não exige ESP-IDF, um toolchain ESP32 ou um High Boy
+conectado.
+
+### Compilar e executar
+
+Execute estes comandos a partir da raiz do repositório:
 
 ```bash
 cmake -S tools/hle -B build
@@ -84,7 +105,12 @@ cmake --build build --target hle_interactive -j
 ./build/hle_interactive
 ```
 
-Controles:
+A primeira compilação também converte os assets em `firmware_p4/assets`. Após
+alterações na interface ou no firmware, execute novamente o comando
+`cmake --build` e reinicie o simulador. Só é necessário reconfigurar após
+alterações no CMake ou na estrutura dos arquivos-fonte.
+
+### Controles
 
 | Entrada do High Boy | Teclado |
 | :--- | :--- |
@@ -93,12 +119,19 @@ Controles:
 | Voltar | Backspace ou Escape |
 | Sair do simulador | Ctrl+Q ou fechar a janela |
 
+### Armazenamento
+
 Por padrão, o simulador armazena os dados de `/sdcard` em `/tmp/hle_storage`.
 Use `HLE_STORAGE_PATH` para escolher outro local:
 
 ```bash
-HLE_STORAGE_PATH="$PWD/.hle-storage" ./build/hle_interactive
+HLE_STORAGE_PATH="$HOME/.local/state/tentacleos-hle" ./build/hle_interactive
 ```
+
+Use um diretório novo e vazio em `HLE_STORAGE_PATH` para executar novamente o
+fluxo de primeira inicialização do firmware.
+
+### Capturas sem interface gráfica
 
 Para gerar capturas determinísticas da interface sem abrir uma janela:
 
@@ -109,12 +142,19 @@ HLE_SNAPSHOT_MS=6500 \
 ./build/hle_interactive
 ```
 
+O exemplo gera a interface por 6500 ms, grava uma imagem PPM e encerra. Ele
+também pode ser usado em CI ou em sessões SSH sem servidor gráfico.
+
+### Testes
+
 Execute os testes nativos com:
 
 ```bash
 cmake --build build --target hle_tests -j
 ctest --test-dir build --output-on-failure
 ```
+
+### Escopo e limitações
 
 O HLE cobre a interface e os fluxos emulados do firmware. Wi-Fi, Bluetooth,
 rádio e outros comportamentos de hardware físico ainda exigem testes no
