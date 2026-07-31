@@ -76,6 +76,12 @@ O alvo de emulação de alto nível (HLE) executa a interface do P4, o LVGL, o
 armazenamento no host e uma ponte SPI simulada para o C5 no Linux. Ele permite
 desenvolver a interface e os fluxos do firmware sem conectar um High Boy.
 
+<p align="center">
+  <img src="pics/hle-emulator.png" alt="Tela de inicialização do emulador HLE do TentacleOS" width="240"/>
+  <br/>
+  <em>Tela de inicialização renderizada pelo simulador SDL nativo.</em>
+</p>
+
 ### Requisitos
 
 - Linux
@@ -153,6 +159,45 @@ Execute os testes nativos com:
 cmake --build build --target hle_tests -j
 ctest --test-dir build --output-on-failure
 ```
+
+#### Exemplo: testar a saída do display
+
+Cada arquivo `*.cpp` em `tools/hle/tests` é compilado no executável `hle_tests`
+e registrado automaticamente no GoogleTest. Por exemplo, crie
+`tools/hle/tests/test_my_ui.cpp`:
+
+```cpp
+#include <array>
+#include <cstdint>
+
+#include <gtest/gtest.h>
+
+#include "hle/hle_display.h"
+
+TEST(MyUIScreen, DrawsExpectedPixel) {
+    auto &display = hle::Display::instance();
+    display.fill_screen(0);
+
+    constexpr uint16_t expected_color = 0xF81F;
+    display.draw_bitmap(12, 20, 13, 21, &expected_color);
+
+    std::array<uint16_t, hle::LCD_H_RES * hle::LCD_V_RES> framebuffer{};
+    ASSERT_TRUE(display.copy_pixels_if_dirty(
+        framebuffer.data(), hle::LCD_H_RES * sizeof(uint16_t)));
+    EXPECT_EQ(framebuffer[(20 * hle::LCD_H_RES) + 12], expected_color);
+}
+```
+
+Compile e execute somente esse teste:
+
+```bash
+cmake --build build --target hle_tests -j
+./build/hle_tests --gtest_filter=MyUIScreen.DrawsExpectedPixel
+```
+
+Use o mesmo padrão para NVS, ponte SPI, entrada e outros contratos emulados no
+host. Testes que incluem cabeçalhos C do firmware devem colocar essas inclusões
+dentro de um bloco `extern "C"`.
 
 ### Escopo e limitações
 

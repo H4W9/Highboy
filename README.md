@@ -75,6 +75,12 @@ The host-level emulation (HLE) target runs the P4 UI, LVGL, host-backed storage,
 and a simulated C5 SPI bridge on Linux. It is intended for UI and firmware-flow
 development without a connected High Boy.
 
+<p align="center">
+  <img src="pics/hle-emulator.png" alt="TentacleOS HLE emulator boot screen" width="240"/>
+  <br/>
+  <em>Boot screen rendered by the native SDL simulator.</em>
+</p>
+
 ### Requirements
 
 - Linux
@@ -151,6 +157,45 @@ Run the native regression suite with:
 cmake --build build --target hle_tests -j
 ctest --test-dir build --output-on-failure
 ```
+
+#### Example: testing display output
+
+Every `*.cpp` file under `tools/hle/tests` is compiled into `hle_tests` and
+automatically registered with GoogleTest. For example, create
+`tools/hle/tests/test_my_ui.cpp`:
+
+```cpp
+#include <array>
+#include <cstdint>
+
+#include <gtest/gtest.h>
+
+#include "hle/hle_display.h"
+
+TEST(MyUIScreen, DrawsExpectedPixel) {
+    auto &display = hle::Display::instance();
+    display.fill_screen(0);
+
+    constexpr uint16_t expected_color = 0xF81F;
+    display.draw_bitmap(12, 20, 13, 21, &expected_color);
+
+    std::array<uint16_t, hle::LCD_H_RES * hle::LCD_V_RES> framebuffer{};
+    ASSERT_TRUE(display.copy_pixels_if_dirty(
+        framebuffer.data(), hle::LCD_H_RES * sizeof(uint16_t)));
+    EXPECT_EQ(framebuffer[(20 * hle::LCD_H_RES) + 12], expected_color);
+}
+```
+
+Build and run only that test:
+
+```bash
+cmake --build build --target hle_tests -j
+./build/hle_tests --gtest_filter=MyUIScreen.DrawsExpectedPixel
+```
+
+Use the same pattern for NVS, SPI bridge, input, and other host-emulated
+contracts. Tests that include C firmware headers should place those includes
+inside an `extern "C"` block.
 
 ### Scope and limitations
 
