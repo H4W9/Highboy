@@ -36,8 +36,10 @@ Flash (P4 only, which also programs C5):
 Formatting is enforced by CI and the pre-commit hook. Run manually before committing:
 
 ```bash
-./tools/format.sh            # fix
-./tools/format.sh --check    # verify only (CI uses this)
+./tools/format.sh                            # fix all firmware sources
+./tools/format.sh --check                    # verify all firmware sources
+./tools/format.sh --changed <base-ref>        # fix files changed from a base
+./tools/format.sh --check-changed <base-ref>  # verify changed files (CI uses this)
 ```
 
 Config: `.clang-format` — LLVM base, 2-space indent, 100-column limit, pointers right-aligned, no sorted includes. Only `.c` and `.h` files under `firmware_*/` are formatted.
