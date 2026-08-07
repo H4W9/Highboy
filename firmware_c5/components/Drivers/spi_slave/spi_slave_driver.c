@@ -20,6 +20,7 @@
 #include "driver/gpio.h"
 #include "driver/spi_slave.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 
 #include "pin_def.h"
 
