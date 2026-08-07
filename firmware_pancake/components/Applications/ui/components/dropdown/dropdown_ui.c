@@ -22,6 +22,7 @@
 #include "page_dots_ui.h"
 #include "toggle_ui.h"
 #include "ui_theme.h"
+#include "wifi_service.h"
 
 #define DROPDOWN_HEIGHT_P0 ((LCD_V_RES * 85) / 100)
 #define DROPDOWN_HEIGHT_P1 ((LCD_V_RES * 50) / 100)
@@ -265,6 +266,10 @@ static void slide_btn_timer_cb(lv_timer_t *timer) {
     if (selected_idx < 2) {
       toggle_ui_toggle(&toggles[selected_idx]);
       update_circle(selected_idx);
+      // toggles[1] is WiFi — actually enable/disable the radio (persisted).
+      if (selected_idx == 1) {
+        wifi_service_set_enabled(toggle_ui_get(&toggles[1]));
+      }
     }
   }
 
@@ -366,6 +371,11 @@ void dropdown_ui_create(lv_obj_t *parent) {
     toggle_ui_create(&toggles[i], row_toggles);
     sel_items[i] = toggles[i].obj;
   }
+
+  // Reflect the persisted radio state: toggles[1] = WiFi.
+  toggle_ui_set(&toggles[1], wifi_service_is_active());
+  update_circle(0);
+  update_circle(1);
 
   static lv_image_dsc_t *phone_dsc = NULL;
   static lv_image_dsc_t *volume_dsc = NULL;

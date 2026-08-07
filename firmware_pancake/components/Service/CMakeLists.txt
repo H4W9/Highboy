@@ -86,6 +86,9 @@ idf_component_register(SRCS
     Drivers
     Applications
     esp_http_server
+    esp_wifi
+    esp_netif
+    esp_event
     nvs_flash
     lvgl
     littlefs

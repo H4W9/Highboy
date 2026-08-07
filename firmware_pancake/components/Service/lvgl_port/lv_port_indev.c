@@ -57,22 +57,6 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data);
 static btn_zone_t classify_zone(int16_t x, int16_t y);
 static uint32_t zone_to_lvkey(btn_zone_t zone);
 
-// --- Temporary on-screen touch debug overlay (Phase 1 calibration) ---------
-#define INDEV_DEBUG_OVERLAY 1
-static const char *key_name(uint32_t k) {
-  switch (k) {
-    case LV_KEY_UP: return "UP";
-    case LV_KEY_DOWN: return "DOWN";
-    case LV_KEY_LEFT: return "LEFT";
-    case LV_KEY_RIGHT: return "RIGHT";
-    case LV_KEY_ENTER: return "OK";
-    case LV_KEY_ESC: return "BACK";
-    case LV_KEY_NEXT: return "NEXT(down)";
-    case LV_KEY_PREV: return "PREV(up)";
-    default: return "?";
-  }
-}
-
 void lv_port_indev_init(void) {
   indev_keypad = lv_indev_create();
   lv_indev_set_type(indev_keypad, LV_INDEV_TYPE_KEYPAD);
@@ -149,21 +133,6 @@ static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data) {
     // Rising edge — latch the zone key and report a single press.
     s_finger_down = true;
     s_key = zone_to_lvkey(zone);
-    ESP_LOGI(TAG, "TOUCH x=%d y=%d -> %s", (int)x, (int)y, key_name(s_key));
-#if INDEV_DEBUG_OVERLAY
-    // Show the last tap's raw coords + resolved zone on a top-layer label so it
-    // is visible without a serial console (USB-JTAG logs are unreliable here).
-    static lv_obj_t *s_dbg = NULL;
-    if (s_dbg == NULL) {
-      s_dbg = lv_label_create(lv_layer_top());
-      lv_obj_set_style_bg_opa(s_dbg, LV_OPA_COVER, 0);
-      lv_obj_set_style_bg_color(s_dbg, lv_color_black(), 0);
-      lv_obj_set_style_text_color(s_dbg, lv_color_hex(0x00FF66), 0);
-      lv_obj_set_style_pad_all(s_dbg, 2, 0);
-      lv_obj_align(s_dbg, LV_ALIGN_TOP_LEFT, 0, 0);
-    }
-    lv_label_set_text_fmt(s_dbg, "x%d y%d %s", (int)x, (int)y, key_name(s_key));
-#endif
     buzzer_click();  // audible tap feedback
     data->key = s_key;
     data->state = LV_INDEV_STATE_PRESSED;

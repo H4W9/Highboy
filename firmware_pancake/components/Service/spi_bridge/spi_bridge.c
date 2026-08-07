@@ -24,6 +24,7 @@
 
 #include "spi_bridge_phy.h"
 #include "spi_timeouts.h"
+#include "spi_shim.h"
 
 static const char *TAG = "SPI_BRIDGE_P4";
 
@@ -144,6 +145,14 @@ esp_err_t spi_bridge_send_command(spi_id_t id,
                                   spi_header_t *out_header,
                                   uint8_t *out_payload,
                                   uint32_t timeout_ms) {
+  // Pancake single-chip: there is no C5 coprocessor. Handle the command
+  // in-process via the radio shim. Unhandled IDs return a fast benign error
+  // (never the blocking SPI transport below).
+  esp_err_t shim_rc = spi_shim_dispatch(id, payload, len, out_header, out_payload);
+  if (shim_rc != ESP_ERR_NOT_FOUND) {
+    return shim_rc;
+  }
+
   if (!s_bridge_alive) {
     return ESP_ERR_INVALID_STATE;
   }

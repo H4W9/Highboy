@@ -1,126 +1,7 @@
 ﻿Executing action: all (aliases: build)
 Running ninja in directory C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\firmware_pancake\build
 Executing "ninja all"...
-[1/36] Building C object esp-idf/Drivers/CMakeFiles/__idf_Drivers.dir/buttons_gpio/buttons_gpio.c.obj
-
-[2/36] Linking C static library esp-idf\Drivers\libDrivers.a
-
-[3/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/badusb/ui_badusb_menu.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/badusb/ui_badusb_menu.c:26:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   26 | static const char *TAG = "UI_BADUSB_MENU";
-
-      |                    ^~~
-
-[4/36] Building C object esp-idf/Service/CMakeFiles/__idf_Service.dir/lvgl_port/lv_port_indev.c.obj
-
-[5/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/display_settings/display_settings_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/display_settings/display_settings_ui.c:28:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   28 | static const char *TAG = "DISPLAY_UI";
-
-      |                    ^~~
-
-[6/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/connection_settings/connection_settings_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/connection_settings/connection_settings_ui.c:103:13: warning: 'update_wifi_toggle' defined but not used [-Wunused-function]
-  103 | static void update_wifi_toggle(void) {
-      |             ^~~~~~~~~~~~~~~~~~
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/connection_settings/connection_settings_ui.c:29:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   29 | static const char *TAG = "CONN_UI";
-
-      |                    ^~~
-
-[7/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/components/message_box/msgbox_ui.c.obj
-
-[8/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/bluetooth/ui_ble_menu.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/bluetooth/ui_ble_menu.c:26:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   26 | static const char *TAG = "UI_BLE_MENU";
-
-      |                    ^~~
-
-[9/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/components/dropdown/dropdown_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/components/dropdown/dropdown_ui.c:66:13: warning: 'update_slider' defined but not used [-Wunused-function]
-
-   66 | static void update_slider(int idx) {
-
-      |             ^~~~~~~~~~~~~
-
-[10/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/files/files_ui.c.obj
-
-[11/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/battery_settings/battery_settings_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/battery_settings/battery_settings_ui.c:26:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   26 | static const char *TAG = "BATTERY_SETTINGS_UI";
-
-      |                    ^~~
-
-[12/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/infrared/ir_burst_ui.c.obj
-
-[13/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/infrared/ir_menu_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/infrared/ir_menu_ui.c:25:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   25 | static const char *TAG = "IR_MENU_UI";
-
-      |                    ^~~
-
-[14/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/infrared/ir_controller_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/infrared/ir_controller_ui.c:25:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   25 | static const char *TAG = "IR_CTRL_UI";
-
-      |                    ^~~
-
-[15/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/nfc/nfc_menu_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/nfc/nfc_menu_ui.c:25:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   25 | static const char *TAG = "NFC_MENU_UI";
-
-      |                    ^~~
-
-[16/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/infrared/ir_receive_ui.c.obj
-
-[17/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/infrared/ir_send_ui.c.obj
-
-[18/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/infrared/ir_saved_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/infrared/ir_saved_ui.c:32:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   32 | static const char *TAG = "IR_SAVED_UI";
-
-      |                    ^~~
-
-[19/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/sound_settings/sound_settings_ui.c.obj
-
-[20/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/settings/settings_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/settings/settings_ui.c:26:20: warning: 'TAG' defined but not used [-Wunused-variable]
-
-   26 | static const char *TAG = "SETTINGS_UI";
-
-      |                    ^~~
-
-[21/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/interface_settings/interface_settings_ui.c.obj
-
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/interface_settings/interface_settings_ui.c:64:20: warning: 'LANG_OPTIONS' defined but not used [-Wunused-variable]
-
-   64 | static const char *LANG_OPTIONS[] = {"EN", "PT", "ES", "FR"};
-
-      |                    ^~~~~~~~~~~~
-
-[22/36] Linking C static library esp-idf\Service\libService.a
-
-[23/36] Performing build step for 'bootloader'
+[1/13] Performing build step for 'bootloader'
 
 [1/1] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\firmware_pancake\build\bootloader\esp-idf\esptool_py && C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe C:/Espressif/frameworks/esp-idf-v5.5.1/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x2000 C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/bootloader/bootloader.bin"
 
@@ -129,9 +10,9 @@ Bootloader binary size 0x5610 bytes. 0x9f0 bytes (10%) free.
 
 
 
-[24/36] No install step for 'bootloader'
+[2/13] No install step for 'bootloader'
 
-[25/36] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\firmware_pancake\build && C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\firmware_pancake\build\littlefs_py_venv\Scripts\littlefs-python.exe create C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/temp C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/assets.bin -v --fs-size=0x200000 --name-max=64 --block-size=4096"
+[3/13] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\firmware_pancake\build && C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\firmware_pancake\build\littlefs_py_venv\Scripts\littlefs-python.exe create C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/temp C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/assets.bin -v --fs-size=0x200000 --name-max=64 --block-size=4096"
 
 LittleFS Configuration:
 
@@ -407,49 +288,44 @@ Adding File:      storage\wifi\scanned_clients.json
 Adding File:      UI\MENU_SELECT.bin
 
 
-[26/36] Completed 'bootloader'
+[4/13] Completed 'bootloader'
 
-[27/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/wifi/wifi_attack_menu_ui.c.obj
+[5/13] Building C object esp-idf/Service/CMakeFiles/__idf_Service.dir/spi_bridge/spi_shim.c.obj
 
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/wifi/wifi_attack_menu_ui.c:26:20: warning: 'TAG' defined but not used [-Wunused-variable]
+[6/13] Linking C static library esp-idf\Service\libService.a
 
-   26 | static const char *TAG = "WIFI_ATTACK_MENU_UI";
+[7/13] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/wifi/wifi_scan_ap_ui.c.obj
 
-      |                    ^~~
+C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/wifi/wifi_scan_ap_ui.c:36:9: warning: "LIST_H" redefined
+   36 | #define LIST_H            160
+      |         ^~~~~~
+In file included from C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/include/freertos/task.h:41,
+                 from C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/esp_additions/include/freertos/idf_additions.h:20,
+                 from C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/include/freertos/FreeRTOS.h:1533,
 
-[28/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/wifi/wifi_packets_menu_ui.c.obj
+                 from C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/wifi/wifi_scan_ap_ui.c:21:
 
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/wifi/wifi_packets_menu_ui.c:26:20: warning: 'TAG' defined but not used [-Wunused-variable]
+C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/include/freertos/list.h:63:9: note: this is the location of the previous definition
 
-   26 | static const char *TAG = "UI_WIFI_PACKETS_MENU";
+   63 | #define LIST_H
 
-      |                    ^~~
+      |         ^~~~~~
 
-[29/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/theme_selector/theme_selector_ui.c.obj
+[8/13] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/components/dropdown/dropdown_ui.c.obj
 
-[30/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/wifi/wifi_scan_menu_ui.c.obj
+C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/components/dropdown/dropdown_ui.c:67:13: warning: 'update_slider' defined but not used [-Wunused-function]
 
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/wifi/wifi_scan_menu_ui.c:26:20: warning: 'TAG' defined but not used [-Wunused-variable]
+   67 | static void update_slider(int idx) {
 
-   26 | static const char *TAG = "UI_WIFI_SCAN_MENU";
+      |             ^~~~~~~~~~~~~
 
-      |                    ^~~
+[9/13] Linking C static library esp-idf\Applications\libApplications.a
 
-[31/36] Building C object esp-idf/Applications/CMakeFiles/__idf_Applications.dir/ui/screens/wifi/wifi_ui.c.obj
+[10/13] Generating esp-idf/esp_system/ld/sections.ld
 
-C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/components/Applications/ui/screens/wifi/wifi_ui.c:26:20: warning: 'TAG' defined but not used [-Wunused-variable]
+[11/13] Linking CXX executable TentacleOS_Pancake.elf
 
-   26 | static const char *TAG = "UI_WIFI_MENU";
-
-      |                    ^~~
-
-[32/36] Linking C static library esp-idf\Applications\libApplications.a
-
-[33/36] Generating esp-idf/esp_system/ld/sections.ld
-
-[34/36] Linking CXX executable TentacleOS_Pancake.elf
-
-[35/36] Generating binary image from built executable
+[12/13] Generating binary image from built executable
 
 esptool.py v4.10.0
 
@@ -465,9 +341,9 @@ Successfully created esp32c5 image.
 
 Generated C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/TentacleOS_Pancake.bin
 
-[36/36] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\firmware_pancake\build\esp-idf\esptool_py && C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe C:/Espressif/frameworks/esp-idf-v5.5.1/components/partition_table/check_sizes.py --offset 0x8000 partition --type app C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/partition_table/partition-table.bin C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/TentacleOS_Pancake.bin"
+[13/13] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\firmware_pancake\build\esp-idf\esptool_py && C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe C:/Espressif/frameworks/esp-idf-v5.5.1/components/partition_table/check_sizes.py --offset 0x8000 partition --type app C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/partition_table/partition-table.bin C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/TentacleOS_Pancake.bin"
 
-TentacleOS_Pancake.bin binary size 0xe4230 bytes. Smallest app partition is 0x400000 bytes. 0x31bdd0 bytes (78%) free.
+TentacleOS_Pancake.bin binary size 0x185450 bytes. Smallest app partition is 0x400000 bytes. 0x27abb0 bytes (62%) free.
 
 
 

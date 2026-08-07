@@ -361,6 +361,10 @@ void ui_wifi_scan_ap_open(void) {
   lv_refr_now(NULL);
   if (!wifi_service_is_active()) {
     lv_label_set_text(s_loading_label, "WIFI OFF");
+    // Focus the screen so LV_KEY_ESC still routes here (otherwise, with no
+    // list items added, there is nothing focused and back would not work).
+    lv_group_add_obj(main_group, s_screen);
+    lv_group_focus_obj(s_screen);
     return;
   }
   xTaskCreate(scan_worker_task, SCAN_TASK_NAME, SCAN_TASK_STACK, NULL, SCAN_TASK_PRIORITY, NULL);

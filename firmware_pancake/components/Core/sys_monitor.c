@@ -40,39 +40,18 @@ typedef struct {
 } sys_monitor_params_t;
 
 static void check_task_stacks(TaskStatus_t *tasks, uint32_t count) {
+  // Log-only. The previous behavior deleted any task whose stack high-water
+  // mark dipped below the threshold (and restarted the UI). On the single-core
+  // C5 that randomly kills system tasks (esp_timer, wifi, ...) and causes
+  // freezes / black screens. FreeRTOS's own stack-overflow hook (kernel.c)
+  // handles real overflows; here we only warn.
   for (uint32_t i = 0; i < count; i++) {
     uint32_t watermark = tasks[i].usStackHighWaterMark;
-
-    if (watermark >= CRITICAL_STACK_THRESHOLD) {
-      continue;
-    }
-
-    ESP_LOGE(TAG,
-             "CRITICAL STACK in task [%s]: %lu bytes free",
-             tasks[i].pcTaskName,
-             (unsigned long)watermark);
-
-    // UI Task requires special recovery
-    if (strcmp(tasks[i].pcTaskName, "UI Task") == 0) {
-      ESP_LOGE(TAG, "UI Task crash — initiating emergency restart");
-      vTaskDelete(tasks[i].xHandle);
-      ui_hard_restart();
-      continue;
-    }
-
-    ui_switch_screen(SCREEN_HOME);
-
-    char msg_buf[ALERT_MSG_SIZE];
-    snprintf(msg_buf,
-             sizeof(msg_buf),
-             "Process '%s' Terminated!\nLow Stack (%lu B).",
-             tasks[i].pcTaskName,
-             (unsigned long)watermark);
-
-    safeguard_alert("SYSTEM PROTECTED", msg_buf);
-
-    if (tasks[i].xHandle != xTaskGetCurrentTaskHandle()) {
-      vTaskDelete(tasks[i].xHandle);
+    if (watermark < CRITICAL_STACK_THRESHOLD) {
+      ESP_LOGW(TAG,
+               "Low stack in task [%s]: %lu words free",
+               tasks[i].pcTaskName,
+               (unsigned long)watermark);
     }
   }
 }
@@ -84,18 +63,18 @@ static void sys_monitor_task(void *pvParameters) {
 
   ESP_LOGI(TAG, "System monitor started (verbose: %s)", is_verbose ? "enabled" : "disabled");
 
+  (void)is_verbose;
   while (1) {
-    if (is_verbose) {
-      uint32_t free_heap = esp_get_free_heap_size();
-      uint32_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-      uint32_t spiram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    // Always log RAM so memory trends are visible over the serial monitor.
+    uint32_t free_heap = esp_get_free_heap_size();
+    uint32_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    uint32_t spiram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
 
-      ESP_LOGI(TAG,
-               "RAM — Free: %lu, Internal: %lu, PSRAM: %lu",
-               (unsigned long)free_heap,
-               (unsigned long)internal_free,
-               (unsigned long)spiram_free);
-    }
+    ESP_LOGI(TAG,
+             "RAM — Free: %lu, Internal: %lu, PSRAM: %lu",
+             (unsigned long)free_heap,
+             (unsigned long)internal_free,
+             (unsigned long)spiram_free);
 
     uint32_t task_count = uxTaskGetNumberOfTasks();
     TaskStatus_t *task_array = pvPortMalloc(task_count * sizeof(TaskStatus_t));

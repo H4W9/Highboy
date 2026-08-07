@@ -4,7 +4,7 @@ Running ninja in directory C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\
 Executing "ninja all"...
 [1/5] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\Wade\OneDrive\Documents\GitHub\H4W9\Highboy\firmware_pancake\build\esp-idf\esptool_py && C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe C:/Espressif/frameworks/esp-idf-v5.5.1/components/partition_table/check_sizes.py --offset 0x8000 partition --type app C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/partition_table/partition-table.bin C:/Users/Wade/OneDrive/Documents/GitHub/H4W9/Highboy/firmware_pancake/build/TentacleOS_Pancake.bin"
 
-TentacleOS_Pancake.bin binary size 0xe4230 bytes. Smallest app partition is 0x400000 bytes. 0x31bdd0 bytes (78%) free.
+TentacleOS_Pancake.bin binary size 0x185450 bytes. Smallest app partition is 0x400000 bytes. 0x27abb0 bytes (62%) free.
 
 
 [2/5] Performing build step for 'bootloader'

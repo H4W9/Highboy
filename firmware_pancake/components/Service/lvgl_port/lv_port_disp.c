@@ -19,17 +19,20 @@
 #include "esp_heap_caps.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
+#include "driver/spi_common.h"
+#include "hal/spi_types.h"
 
 #include "st7789.h"
 #include "ble_screen_server.h"
 
 static const char *TAG = "LV_PORT_DISP";
 
-// Pancake (ESP32-C5) has limited internal SRAM, so use small partial draw
-// buffers in internal DMA-capable RAM (40 lines each ≈ 25 KB, x2).
-#define LVGL_BUF_LINES  40
+// Pancake (ESP32-C5): after linking WiFi, internal RAM is tight (~109 KB).
+// Use small partial draw buffers allocated via spi_bus_dma_memory_alloc(),
+// which returns memory that is valid DMA source for the SPI panel host
+// (matches the proven JANOS/Pancake config). 24 lines each (~15 KB), x2.
+#define LVGL_BUF_LINES  24
 #define LVGL_BUF_PIXELS (LCD_H_RES * LVGL_BUF_LINES)
-#define LVGL_BUF_ALLOC  (MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)
 
 static lv_display_t *s_disp_handle = NULL;
 
@@ -61,13 +64,17 @@ void lv_port_disp_init(void) {
 
   size_t buf_size = LVGL_BUF_PIXELS * sizeof(lv_color_t);
 
-  void *buf1 = heap_caps_malloc(buf_size, LVGL_BUF_ALLOC);
-  void *buf2 = heap_caps_malloc(buf_size, LVGL_BUF_ALLOC);
+  // DMA-capable memory for the LCD SPI host (SPI2). Picks internal or PSRAM
+  // as appropriate and guarantees the buffer is a valid DMA source.
+  void *buf1 = spi_bus_dma_memory_alloc(SPI2_HOST, buf_size, 0);
+  void *buf2 = spi_bus_dma_memory_alloc(SPI2_HOST, buf_size, 0);
 
   if (buf1 == NULL || buf2 == NULL) {
     ESP_LOGE(TAG, "Failed to allocate display buffers (%u bytes each)", (unsigned)buf_size);
     return;
   }
+
+  ESP_LOGI(TAG, "LVGL buffers @ %p / %p (%u bytes each)", buf1, buf2, (unsigned)buf_size);
 
   lv_display_set_buffers(s_disp_handle, buf1, buf2, buf_size, LV_DISPLAY_RENDER_MODE_PARTIAL);
 
