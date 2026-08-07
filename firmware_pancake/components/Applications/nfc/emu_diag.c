@@ -1,0 +1,987 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+#include "emu_diag.h"
+
+#include <string.h>
+
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "hb_nfc_spi.h"
+#include "hb_nfc_timer.h"
+#include "mf_classic_emu.h"
+#include "st25r3916_cmd.h"
+#include "st25r3916_core.h"
+#include "st25r3916_irq.h"
+#include "st25r3916_reg.h"
+
+#define EMU_DIAG_AUX_OSC_BIT 0x04U /**< AUX_DISPLAY bit 2: oscillator stable. */
+
+#define EMU_DIAG_OP_CTRL_WU_EN 0x04U /**< OP_CTRL bit 2: wake-up enable. */
+
+#define EMU_DIAG_BIT_RATE_DEFAULT      0x00U /**< 106 kbps both directions. */
+#define EMU_DIAG_ISO14443A_DISABLED    0x00U /**< ISO 14443-A features off. */
+#define EMU_DIAG_PASSIVE_TGT_OFF       0x00U /**< No passive-target protocols. */
+#define EMU_DIAG_IRQ_UNMASK_ALL        0x00U /**< Unmask all interrupts (mask reg = 0). */
+#define EMU_DIAG_FIELD_ACT_SENSITIVE   0x33U /**< Sensitive field activation threshold. */
+#define EMU_DIAG_FIELD_DEACT_SENSITIVE 0x22U /**< Sensitive field deactivation threshold. */
+#define EMU_DIAG_FIELD_ACT_LOW         0x03U /**< Low field activation threshold. */
+#define EMU_DIAG_FIELD_DEACT_LOW       0x01U /**< Low field deactivation threshold. */
+#define EMU_DIAG_PT_MOD_DEFAULT        0x60U /**< Default passive-target modulation. */
+#define EMU_DIAG_PT_MOD_ALT            0x17U /**< Alternative passive-target modulation. */
+
+static const char *TAG = "EMU_DIAG";
+
+static void dump_key_regs(const char *label) {
+  uint8_t r[64];
+  for (int i = 0; i < 64; i++) {
+    hb_nfc_spi_reg_read((uint8_t)i, &r[i]);
+  }
+
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "REG DUMP: %s", label);
+  ESP_LOGW(TAG,
+           "IO_CONF1(00)=%02X IO_CONF2(01)=%02X",
+           r[ST25R3916_REG_IO_CONF1],
+           r[ST25R3916_REG_IO_CONF2]);
+  ESP_LOGW(TAG,
+           "OP_CTRL(02)=%02X [EN=%d RX_EN=%d TX_EN=%d wu=%d]",
+           r[ST25R3916_REG_OP_CTRL],
+           (r[ST25R3916_REG_OP_CTRL] >> 7) & 1,
+           (r[ST25R3916_REG_OP_CTRL] >> 6) & 1,
+           (r[ST25R3916_REG_OP_CTRL] >> 3) & 1,
+           (r[ST25R3916_REG_OP_CTRL] >> 2) & 1);
+  ESP_LOGW(TAG,
+           "MODE(03)=%02X [targ=%d om=0x%X]",
+           r[ST25R3916_REG_MODE],
+           (r[ST25R3916_REG_MODE] >> 7) & 1,
+           (r[ST25R3916_REG_MODE] >> 3) & 0x0F);
+  ESP_LOGW(TAG,
+           "BIT_RATE(04)=%02X ISO14443A(05)=%02X [no_tx_par=%d no_rx_par=%d antcl=%d]",
+           r[ST25R3916_REG_BIT_RATE],
+           r[ST25R3916_REG_ISO14443A],
+           (r[ST25R3916_REG_ISO14443A] >> 7) & 1,
+           (r[ST25R3916_REG_ISO14443A] >> 6) & 1,
+           r[ST25R3916_REG_ISO14443A] & 1);
+  ESP_LOGW(TAG,
+           "PASSIVE_TGT(08)=%02X [d_106=%d d_212=%d d_ap2p=%d]",
+           r[ST25R3916_REG_PASSIVE_TARGET],
+           r[ST25R3916_REG_PASSIVE_TARGET] & 1,
+           (r[ST25R3916_REG_PASSIVE_TARGET] >> 1) & 1,
+           (r[ST25R3916_REG_PASSIVE_TARGET] >> 2) & 1);
+  ESP_LOGW(TAG, "AUX_DEF(0A)=%02X", r[ST25R3916_REG_AUX_DEF]);
+  ESP_LOGW(TAG,
+           "RX_CONF: %02X %02X %02X %02X",
+           r[ST25R3916_REG_RX_CONF1],
+           r[ST25R3916_REG_RX_CONF2],
+           r[ST25R3916_REG_RX_CONF3],
+           r[ST25R3916_REG_RX_CONF4]);
+  ESP_LOGW(TAG,
+           "MASK: MAIN(16)=%02X TMR(17)=%02X ERR(18)=%02X TGT(19)=%02X",
+           r[ST25R3916_REG_MASK_MAIN_INT],
+           r[ST25R3916_REG_MASK_TIMER_NFC_INT],
+           r[ST25R3916_REG_MASK_ERROR_WUP_INT],
+           r[ST25R3916_REG_MASK_TARGET_INT]);
+  ESP_LOGW(TAG,
+           "IRQ: MAIN(1A)=%02X TMR(1B)=%02X ERR(1C)=%02X TGT(1D)=%02X",
+           r[ST25R3916_REG_MAIN_INT],
+           r[ST25R3916_REG_TIMER_NFC_INT],
+           r[ST25R3916_REG_ERROR_INT],
+           r[ST25R3916_REG_TARGET_INT]);
+  ESP_LOGW(TAG, "PT_STS(21)=%02X", r[ST25R3916_REG_PASSIVE_TARGET_STS]);
+  ESP_LOGW(TAG,
+           "AD_RESULT(24)=%d ANT_TUNE: A=%02X B=%02X",
+           r[ST25R3916_REG_BIT_RATE_DET],
+           r[ST25R3916_REG_ANT_TUNE_A],
+           r[ST25R3916_REG_ANT_TUNE_B]);
+  ESP_LOGW(TAG,
+           "TX_DRIVER(28)=%02X PT_MOD(29)=%02X",
+           r[ST25R3916_REG_TX_DRIVER],
+           r[ST25R3916_REG_PT_MOD]);
+  ESP_LOGW(TAG,
+           "FLD_ACT(2A)=%02X FLD_DEACT(2B)=%02X",
+           r[ST25R3916_REG_FIELD_THRESH_ACT],
+           r[ST25R3916_REG_FIELD_THRESH_DEACT]);
+  ESP_LOGW(TAG,
+           "REG_CTRL(2C)=%02X RSSI(2D)=%02X",
+           r[ST25R3916_REG_REGULATOR_CTRL],
+           r[ST25R3916_REG_RSSI_RESULT]);
+  ESP_LOGW(
+      TAG,
+      "AUX_DISP(31)=%02X [efd_o=%d efd_i=%d osc=%d nfc_t=%d rx_on=%d rx_act=%d tx_on=%d tgt=%d]",
+      r[ST25R3916_REG_AUX_DISPLAY],
+      (r[ST25R3916_REG_AUX_DISPLAY] >> 0) & 1,
+      (r[ST25R3916_REG_AUX_DISPLAY] >> 1) & 1,
+      (r[ST25R3916_REG_AUX_DISPLAY] >> 2) & 1,
+      (r[ST25R3916_REG_AUX_DISPLAY] >> 3) & 1,
+      (r[ST25R3916_REG_AUX_DISPLAY] >> 4) & 1,
+      (r[ST25R3916_REG_AUX_DISPLAY] >> 5) & 1,
+      (r[ST25R3916_REG_AUX_DISPLAY] >> 6) & 1,
+      (r[ST25R3916_REG_AUX_DISPLAY] >> 7) & 1);
+  ESP_LOGW(TAG,
+           "IC_ID(3F)=%02X [type=%d rev=%d]",
+           r[ST25R3916_REG_IC_IDENTITY],
+           (r[ST25R3916_REG_IC_IDENTITY] >> 3) & 0x1F,
+           r[ST25R3916_REG_IC_IDENTITY] & 0x07);
+  ESP_LOGW(TAG, "");
+}
+
+static void read_regs(uint8_t r[64]) {
+  for (int i = 0; i < 64; i++) {
+    hb_nfc_spi_reg_read((uint8_t)i, &r[i]);
+  }
+}
+
+typedef struct {
+  uint8_t addr;
+  const char *name;
+} reg_name_t;
+
+static void
+diff_key_regs(const char *a_label, const uint8_t *a, const char *b_label, const uint8_t *b) {
+  static const reg_name_t keys[] = {
+      {ST25R3916_REG_IO_CONF1, "IO_CONF1"},
+      {ST25R3916_REG_IO_CONF2, "IO_CONF2"},
+      {ST25R3916_REG_OP_CTRL, "OP_CTRL"},
+      {ST25R3916_REG_MODE, "MODE"},
+      {ST25R3916_REG_BIT_RATE, "BIT_RATE"},
+      {ST25R3916_REG_ISO14443A, "ISO14443A"},
+      {ST25R3916_REG_PASSIVE_TARGET, "PASSIVE_TGT"},
+      {ST25R3916_REG_AUX_DEF, "AUX_DEF"},
+      {ST25R3916_REG_RX_CONF1, "RX_CONF1"},
+      {ST25R3916_REG_RX_CONF2, "RX_CONF2"},
+      {ST25R3916_REG_RX_CONF3, "RX_CONF3"},
+      {ST25R3916_REG_RX_CONF4, "RX_CONF4"},
+      {ST25R3916_REG_MASK_MAIN_INT, "MASK_MAIN"},
+      {ST25R3916_REG_MASK_TIMER_NFC_INT, "MASK_TMR"},
+      {ST25R3916_REG_MASK_ERROR_WUP_INT, "MASK_ERR"},
+      {ST25R3916_REG_MASK_TARGET_INT, "MASK_TGT"},
+      {ST25R3916_REG_PASSIVE_TARGET_STS, "PT_STS"},
+      {ST25R3916_REG_AD_RESULT, "AD_RESULT"},
+      {ST25R3916_REG_ANT_TUNE_A, "ANT_TUNE_A"},
+      {ST25R3916_REG_ANT_TUNE_B, "ANT_TUNE_B"},
+      {ST25R3916_REG_TX_DRIVER, "TX_DRIVER"},
+      {ST25R3916_REG_PT_MOD, "PT_MOD"},
+      {ST25R3916_REG_FIELD_THRESH_ACT, "FLD_ACT"},
+      {ST25R3916_REG_FIELD_THRESH_DEACT, "FLD_DEACT"},
+      {ST25R3916_REG_REGULATOR_CTRL, "REG_CTRL"},
+      {ST25R3916_REG_RSSI_RESULT, "RSSI"},
+      {ST25R3916_REG_AUX_DISPLAY, "AUX_DISP"},
+  };
+
+  bool key_map[64] = {0};
+  for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+    key_map[keys[i].addr] = true;
+  }
+
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "REG DIFF: %s vs %s (KEY REGS)", a_label, b_label);
+  int diff_count = 0;
+  for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+    uint8_t addr = keys[i].addr;
+    if (a[addr] != b[addr]) {
+      ESP_LOGW(TAG,
+               "%-12s (0x%02X): %s=0x%02X %s=0x%02X",
+               keys[i].name,
+               addr,
+               a_label,
+               a[addr],
+               b_label,
+               b[addr]);
+      diff_count++;
+    }
+  }
+  if (diff_count == 0) {
+    ESP_LOGW(TAG, "(no differences in key registers)");
+  }
+
+  int other_diff = 0;
+  for (int i = 0; i < 64; i++) {
+    if (!key_map[i] && a[i] != b[i])
+      other_diff++;
+  }
+  if (other_diff > 0) {
+    ESP_LOGW(TAG, "+ %d differences in other registers", other_diff);
+  }
+  ESP_LOGW(TAG, "");
+}
+
+static uint8_t measure_field(void) {
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_MEAS_AMPLITUDE);
+  vTaskDelay(pdMS_TO_TICKS(5));
+  uint8_t ad = 0;
+  hb_nfc_spi_reg_read(ST25R3916_REG_AD_RESULT, &ad);
+  return ad;
+}
+
+static uint8_t read_aux(void) {
+  uint8_t aux = 0;
+  hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+  return aux;
+}
+
+static void test_field_detection(void) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "TEST 1: FIELD DETECTION");
+  ESP_LOGW(TAG, "PRESENT THE PHONE/READER NOW!");
+  ESP_LOGW(TAG, "");
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN);
+  vTaskDelay(pdMS_TO_TICKS(50));
+  uint8_t ad_en = measure_field();
+  uint8_t aux_en = read_aux();
+  ESP_LOGW(TAG,
+           "[A] OP=0x80 (EN) AD=%3d AUX=0x%02X [osc=%d] %s",
+           ad_en,
+           aux_en,
+           (aux_en >> 2) & 1,
+           ad_en > 5 ? "OK" : "FAIL");
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN | ST25R3916_OP_CTRL_RX_EN);
+  vTaskDelay(pdMS_TO_TICKS(10));
+  uint8_t ad_rx = measure_field();
+  uint8_t aux_rx = read_aux();
+  ESP_LOGW(TAG,
+           "[B] OP=0xC0 (EN+RX) AD=%3d AUX=0x%02X [osc=%d] %s",
+           ad_rx,
+           aux_rx,
+           (aux_rx >> 2) & 1,
+           ad_rx > 5 ? "OK" : "FAIL");
+
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "Continuous read for 5s:");
+  uint8_t max_ad = 0;
+  for (int i = 0; i < 50; i++) {
+    uint8_t ad = measure_field();
+    if (ad > max_ad)
+      max_ad = ad;
+    if ((i % 10) == 0) {
+      uint8_t a = read_aux();
+      ESP_LOGW(
+          TAG, "t=%dms: AD=%3d AUX=0x%02X [efd=%d osc=%d]", i * 100, ad, a, a & 1, (a >> 2) & 1);
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+
+  ESP_LOGW(TAG, "AD max: %d", max_ad);
+  if (max_ad < 5) {
+    ESP_LOGE(TAG, "NO EXTERNAL FIELD DETECTED!");
+    ESP_LOGE(TAG, "Check if the NFC reader is on and close");
+    ESP_LOGE(TAG, "The antenna may not capture external field (TX only)");
+  }
+  ESP_LOGW(TAG, "");
+}
+
+static bool test_target_config(int cfg_num,
+                               uint8_t op_ctrl,
+                               uint8_t fld_act,
+                               uint8_t fld_deact,
+                               uint8_t pt_mod,
+                               uint8_t passive_target,
+                               bool antcl) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG,
+           "TEST 2.%d: CONFIG (OP=0x%02X PT=0x%02X ANTCL=%d ACT=0x%02X DEACT=0x%02X MOD=0x%02X)",
+           cfg_num,
+           op_ctrl,
+           passive_target,
+           antcl ? 1 : 0,
+           fld_act,
+           fld_deact,
+           pt_mod);
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+  vTaskDelay(pdMS_TO_TICKS(2));
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_SET_DEFAULT);
+  vTaskDelay(pdMS_TO_TICKS(10));
+
+  uint8_t ic = 0;
+  hb_nfc_spi_reg_read(ST25R3916_REG_IC_IDENTITY, &ic);
+  if (ic == 0x00 || ic == 0xFF) {
+    ESP_LOGE(TAG, "CHIP NOT RESPONDING! IC=0x%02X", ic);
+    ESP_LOGW(TAG, "");
+    return false;
+  }
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN);
+  bool osc = false;
+  for (int i = 0; i < 100; i++) {
+    uint8_t aux = 0;
+    hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+    if (aux & EMU_DIAG_AUX_OSC_BIT) {
+      osc = true;
+      break;
+    }
+    vTaskDelay(1);
+  }
+  ESP_LOGW(TAG, "Oscillator: %s", osc ? "OK" : "NOT STABLE");
+
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_ADJUST_REGULATORS);
+  vTaskDelay(pdMS_TO_TICKS(5));
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_TARGET_NFCA);
+  hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, EMU_DIAG_BIT_RATE_DEFAULT);
+  uint8_t iso14443a = antcl ? ST25R3916_ISO14443A_ANTCL : EMU_DIAG_ISO14443A_DISABLED;
+  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, iso14443a);
+  hb_nfc_spi_reg_write(ST25R3916_REG_PASSIVE_TARGET, passive_target);
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_ACT, fld_act);
+  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_DEACT, fld_deact);
+  hb_nfc_spi_reg_write(ST25R3916_REG_PT_MOD, pt_mod);
+
+  mfc_emu_load_pt_memory();
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_MAIN_INT, EMU_DIAG_IRQ_UNMASK_ALL);
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TIMER_NFC_INT, EMU_DIAG_IRQ_UNMASK_ALL);
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_ERROR_WUP_INT, EMU_DIAG_IRQ_UNMASK_ALL);
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TARGET_INT, EMU_DIAG_IRQ_UNMASK_ALL);
+
+  {
+    st25r3916_irq_status_t s;
+    (void)st25r3916_irq_read(&s);
+  }
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, op_ctrl);
+  vTaskDelay(pdMS_TO_TICKS(5));
+
+  uint8_t mode_rb = 0, op_rb = 0;
+  hb_nfc_spi_reg_read(ST25R3916_REG_MODE, &mode_rb);
+  hb_nfc_spi_reg_read(ST25R3916_REG_OP_CTRL, &op_rb);
+  uint8_t aux0 = read_aux();
+  ESP_LOGW(TAG,
+           "Pre-SENSE: MODE=0x%02X OP=0x%02X AUX=0x%02X [osc=%d efd=%d]",
+           mode_rb,
+           op_rb,
+           aux0,
+           (aux0 >> 2) & 1,
+           aux0 & 1);
+
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
+  vTaskDelay(pdMS_TO_TICKS(10));
+
+  uint8_t pt_sts = 0;
+  hb_nfc_spi_reg_read(ST25R3916_REG_PASSIVE_TARGET_STS, &pt_sts);
+  uint8_t aux1 = read_aux();
+  ESP_LOGW(TAG,
+           "Pos-SENSE: PT_STS=0x%02X AUX=0x%02X [osc=%d efd=%d tgt=%d]",
+           pt_sts,
+           aux1,
+           (aux1 >> 2) & 1,
+           aux1 & 1,
+           (aux1 >> 7) & 1);
+
+  ESP_LOGW(TAG, "Monitoring 10s (READER CLOSE!)...");
+
+  bool wu_a = false, sdd_c = false, any_irq = false;
+  int64_t t0 = esp_timer_get_time();
+  int last_report = -1;
+
+  while ((esp_timer_get_time() - t0) < 10000000LL) {
+    uint8_t tgt_irq = 0, main_irq = 0, err_irq = 0;
+    hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
+    hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
+    hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &err_irq);
+
+    if (tgt_irq || main_irq || err_irq) {
+      int ms = (int)((esp_timer_get_time() - t0) / 1000);
+      ESP_LOGW(TAG, "[%dms] TGT=0x%02X MAIN=0x%02X ERR=0x%02X", ms, tgt_irq, main_irq, err_irq);
+      any_irq = true;
+      if (tgt_irq & ST25R3916_IRQ_TGT_WU_A) {
+        ESP_LOGI(TAG, "WU_A!");
+        wu_a = true;
+      }
+      if (tgt_irq & ST25R3916_IRQ_TGT_WU_A_X) {
+        ESP_LOGI(TAG, "WU_A_X (anti-col done)!");
+      }
+      if (tgt_irq & ST25R3916_IRQ_TGT_SDD_C) {
+        ESP_LOGI(TAG, "SDD_C (SELECTED)!");
+        sdd_c = true;
+      }
+      if (tgt_irq & ST25R3916_IRQ_TGT_OSCF) {
+        ESP_LOGI(TAG, "OSCF (osc stable)");
+      }
+      if (main_irq & ST25R3916_IRQ_MAIN_RXE) {
+        ESP_LOGI(TAG, "RXE (data received)!");
+        uint8_t fs1 = 0;
+        hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fs1);
+        ESP_LOGI(TAG, "FIFO: %d bytes", fs1);
+      }
+    }
+
+    int sec = (int)((esp_timer_get_time() - t0) / 1000000);
+    if (sec != last_report && (sec % 3) == 0) {
+      last_report = sec;
+      uint8_t ad = measure_field();
+      uint8_t a = read_aux();
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
+      ESP_LOGW(TAG, "[%ds] AD=%d AUX=0x%02X [efd=%d osc=%d]", sec, ad, a, a & 1, (a >> 2) & 1);
+    }
+
+    vTaskDelay(1);
+  }
+
+  ESP_LOGW(TAG, "");
+  if (sdd_c) {
+    ESP_LOGI(TAG, "CONFIG %d: SUCCESS SELECTED!", cfg_num);
+  } else if (wu_a) {
+    ESP_LOGI(TAG, "CONFIG %d: Field detected, anti-col failed", cfg_num);
+  } else if (any_irq) {
+    ESP_LOGW(TAG, "CONFIG %d: IRQ seen but no WU_A", cfg_num);
+  } else {
+    ESP_LOGE(TAG, "CONFIG %d: NO IRQ in 10s", cfg_num);
+  }
+  ESP_LOGW(TAG, "");
+
+  return sdd_c;
+}
+
+static void test_pt_memory(void) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "TEST 3: PT MEMORY");
+
+  (void)hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN);
+  vTaskDelay(pdMS_TO_TICKS(2));
+
+  hb_nfc_err_t err = mfc_emu_load_pt_memory();
+  if (err != HB_NFC_OK) {
+    ESP_LOGE(TAG, "mfc_emu_load_pt_memory failed: %d", err);
+    ESP_LOGW(TAG, "");
+    hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+    return;
+  }
+  vTaskDelay(pdMS_TO_TICKS(2));
+
+  uint8_t ptm[15] = {0};
+  err = hb_nfc_spi_pt_mem_read(ptm, 15);
+  if (err != HB_NFC_OK) {
+    ESP_LOGE(TAG, "hb_nfc_spi_pt_mem_read failed: %d", err);
+    ESP_LOGW(TAG, "");
+    hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+    return;
+  }
+
+  ESP_LOGW(TAG,
+           "PT Memory: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+           ptm[0],
+           ptm[1],
+           ptm[2],
+           ptm[3],
+           ptm[4],
+           ptm[5],
+           ptm[6],
+           ptm[7],
+           ptm[8],
+           ptm[9],
+           ptm[10],
+           ptm[11],
+           ptm[12],
+           ptm[13],
+           ptm[14]);
+  ESP_LOGW(TAG,
+           "ATQA=%02X%02X UID=%02X%02X%02X%02X BCC=%02X(calc:%02X) SAK=%02X",
+           ptm[0],
+           ptm[1],
+           ptm[2],
+           ptm[3],
+           ptm[4],
+           ptm[5],
+           ptm[6],
+           ptm[2] ^ ptm[3] ^ ptm[4] ^ ptm[5],
+           ptm[7]);
+
+  bool bcc_ok = (ptm[6] == (ptm[2] ^ ptm[3] ^ ptm[4] ^ ptm[5]));
+  ESP_LOGW(TAG, "BCC: %s", bcc_ok ? "OK" : "WRONG!");
+
+  uint8_t test[15] = {
+      0x04, 0x00, 0xDE, 0xAD, 0xBE, 0xEF, 0xDE ^ 0xAD ^ 0xBE ^ 0xEF, 0x08, 0, 0, 0, 0, 0, 0, 0};
+  hb_nfc_spi_pt_mem_write(ST25R3916_SPI_PT_MEM_A_WRITE, test, 15);
+  vTaskDelay(1);
+  uint8_t rb[15] = {0};
+  err = hb_nfc_spi_pt_mem_read(rb, 15);
+  if (err != HB_NFC_OK) {
+    ESP_LOGE(TAG, "hb_nfc_spi_pt_mem_read (rb) failed: %d", err);
+    ESP_LOGW(TAG, "");
+    hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+    return;
+  }
+  bool match = (memcmp(test, rb, 15) == 0);
+  ESP_LOGW(TAG, "Write/Read test: %s", match ? "OK" : "FAILED!");
+  if (!match) {
+    ESP_LOGW(TAG,
+             "Written: %02X %02X %02X %02X %02X %02X %02X %02X",
+             test[0],
+             test[1],
+             test[2],
+             test[3],
+             test[4],
+             test[5],
+             test[6],
+             test[7]);
+    ESP_LOGW(TAG,
+             "Read: %02X %02X %02X %02X %02X %02X %02X %02X",
+             rb[0],
+             rb[1],
+             rb[2],
+             rb[3],
+             rb[4],
+             rb[5],
+             rb[6],
+             rb[7]);
+  }
+
+  mfc_emu_load_pt_memory();
+  ESP_LOGW(TAG, "");
+}
+
+static void test_oscillator(void) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "TEST 4: OSCILLATOR");
+
+  uint8_t aux = 0, main = 0, tgt = 0;
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux) != HB_NFC_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main) != HB_NFC_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt) != HB_NFC_OK) {
+    ESP_LOGW(TAG, "SPI error reading AUX/MAIN/TGT, skipping oscillator test");
+    ESP_LOGW(TAG, "");
+    return;
+  }
+  ESP_LOGW(TAG, "AUX_DISPLAY=0x%02X (before enabling EN)", aux);
+  ESP_LOGW(TAG,
+           "osc_ok=%d efd_o=%d rx_on=%d tgt=%d",
+           (aux >> 2) & 1,
+           (aux >> 0) & 1,
+           (aux >> 4) & 1,
+           (aux >> 7) & 1);
+
+  if (hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN) != HB_NFC_OK) {
+    ESP_LOGW(TAG, "SPI error writing OP_CTRL, skipping oscillator test");
+    ESP_LOGW(TAG, "");
+    return;
+  }
+  ESP_LOGW(TAG, "OP_CTRL=0x80 (EN) enabling oscillator...");
+
+  bool osc_started = false;
+  for (int i = 0; i < 100; i++) {
+    uint8_t a = 0, m = 0, t = 0;
+    if (hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &a) != HB_NFC_OK ||
+        hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &m) != HB_NFC_OK ||
+        hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &t) != HB_NFC_OK) {
+      ESP_LOGW(TAG, "SPI error reading AUX/MAIN/TGT, aborting test");
+      ESP_LOGW(TAG, "");
+      return;
+    }
+    if ((a & EMU_DIAG_AUX_OSC_BIT) || (m & ST25R3916_IRQ_MAIN_OSC) ||
+        (t & ST25R3916_IRQ_TGT_OSCF)) {
+      ESP_LOGI(
+          TAG, "Oscillator stable at %dms! AUX=0x%02X MAIN=0x%02X TGT=0x%02X", i * 10, a, m, t);
+      osc_started = true;
+      break;
+    }
+    vTaskDelay(1);
+  }
+
+  if (!osc_started) {
+    if (hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux) != HB_NFC_OK ||
+        hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main) != HB_NFC_OK ||
+        hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt) != HB_NFC_OK) {
+      ESP_LOGW(TAG, "SPI error reading AUX/MAIN/TGT, aborting test");
+      ESP_LOGW(TAG, "");
+      return;
+    }
+    ESP_LOGE(
+        TAG, "Oscillator NOT started after 1s. AUX=0x%02X MAIN=0x%02X TGT=0x%02X", aux, main, tgt);
+    ESP_LOGE(TAG,
+             "Bits: efd_o=%d efd_i=%d osc=%d nfc_t=%d rx_on=%d",
+             (aux >> 0) & 1,
+             (aux >> 1) & 1,
+             (aux >> 2) & 1,
+             (aux >> 3) & 1,
+             (aux >> 4) & 1);
+  }
+
+  if (hb_nfc_spi_direct_cmd(ST25R3916_CMD_ADJUST_REGULATORS) != HB_NFC_OK) {
+    ESP_LOGW(TAG, "SPI error on ST25R3916_CMD_ADJUST_REGULATORS, ending test");
+    ESP_LOGW(TAG, "");
+    return;
+  }
+  vTaskDelay(pdMS_TO_TICKS(10));
+
+  uint8_t rc = 0;
+  if (hb_nfc_spi_reg_read(ST25R3916_REG_REGULATOR_CTRL, &rc) != HB_NFC_OK ||
+      hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux) != HB_NFC_OK) {
+    ESP_LOGW(TAG, "SPI error reading REG_CTRL/AUX, ending test");
+    ESP_LOGW(TAG, "");
+    return;
+  }
+  ESP_LOGW(TAG, "After calibration: AUX=0x%02X REG_CTRL=0x%02X", aux, rc);
+  ESP_LOGW(TAG, "");
+}
+
+static void test_aux_def_sweep(void) {
+  static const uint8_t vals[] = {0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0xFF};
+
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "TEST X: AUX_DEF SWEEP");
+  ESP_LOGW(TAG, "(look for AD>0 or efd=1 with reader close)");
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN | ST25R3916_OP_CTRL_RX_EN);
+  vTaskDelay(pdMS_TO_TICKS(5));
+
+  for (size_t i = 0; i < sizeof(vals) / sizeof(vals[0]); i++) {
+    uint8_t v = vals[i];
+    hb_nfc_spi_reg_write(ST25R3916_REG_AUX_DEF, v);
+    vTaskDelay(1);
+    hb_nfc_spi_direct_cmd(ST25R3916_CMD_MEAS_AMPLITUDE);
+    vTaskDelay(2);
+    uint8_t ad = 0;
+    hb_nfc_spi_reg_read(ST25R3916_REG_AD_RESULT, &ad);
+    uint8_t aux = read_aux();
+    ESP_LOGW(TAG,
+             "AUX_DEF=0x%02X -> AD=%3u AUX=0x%02X [efd_o=%d efd_i=%d]",
+             v,
+             ad,
+             aux,
+             aux & 1,
+             (aux >> 1) & 1);
+  }
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_AUX_DEF, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+  ESP_LOGW(TAG, "");
+}
+
+static void test_self_field_measure(void) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "TEST S: SELF FIELD MEASURE");
+  ESP_LOGW(TAG, "(measures AD/RSSI with self field enabled)");
+
+  st25r3916_core_field_on();
+  vTaskDelay(pdMS_TO_TICKS(5));
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_RESET_RX_GAIN);
+  vTaskDelay(pdMS_TO_TICKS(1));
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_MEAS_AMPLITUDE);
+  vTaskDelay(pdMS_TO_TICKS(2));
+
+  uint8_t ad = 0, rssi = 0, aux = 0;
+  hb_nfc_spi_reg_read(ST25R3916_REG_AD_RESULT, &ad);
+  hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
+  hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+  ESP_LOGW(TAG,
+           "self: AD=%u RSSI=0x%02X AUX=0x%02X [efd=%d osc=%d]",
+           ad,
+           rssi,
+           aux,
+           aux & 1,
+           (aux >> 2) & 1);
+
+  st25r3916_core_field_off();
+  ESP_LOGW(TAG, "");
+}
+
+static void test_poller_vs_target_regs(void) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "TEST 0: DIFF POLLER vs TARGET");
+
+  static uint8_t poller[64];
+  static uint8_t target[64];
+  static mfc_emu_card_data_t emu;
+  memset(poller, 0, sizeof(poller));
+  memset(target, 0, sizeof(target));
+  memset(&emu, 0, sizeof(emu));
+
+  st25r3916_core_set_mode_nfca();
+  st25r3916_core_field_on();
+  vTaskDelay(pdMS_TO_TICKS(5));
+  read_regs(poller);
+  st25r3916_core_field_off();
+
+  emu.uid_len = 4;
+  emu.uid[0] = 0x04;
+  emu.uid[1] = 0x11;
+  emu.uid[2] = 0x22;
+  emu.uid[3] = 0x33;
+  emu.atqa[0] = 0x44;
+  emu.atqa[1] = 0x00;
+  emu.sak = 0x04;
+  emu.type = MF_CLASSIC_1K;
+  emu.sector_count = 0;
+  emu.total_blocks = 0;
+
+  (void)mfc_emu_init(&emu);
+  (void)mfc_emu_configure_target();
+  read_regs(target);
+
+  diff_key_regs("POLL", poller, "TGT", target);
+  ESP_LOGW(TAG, "");
+}
+
+static void test_rssi_monitor(int seconds) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "TEST Y: RSSI MONITOR (%ds)", seconds);
+  ESP_LOGW(TAG, "(NFC reader should be touching)");
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN | ST25R3916_OP_CTRL_RX_EN);
+  vTaskDelay(pdMS_TO_TICKS(5));
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_RSSI);
+  vTaskDelay(pdMS_TO_TICKS(2));
+
+  for (int i = 0; i < seconds; i++) {
+    uint8_t rssi = 0, aux = 0;
+    hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi);
+    hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+    ESP_LOGW(
+        TAG, "t=%ds RSSI=0x%02X AUX=0x%02X [efd=%d osc=%d]", i, rssi, aux, aux & 1, (aux >> 2) & 1);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+  ESP_LOGW(TAG, "");
+}
+
+static void test_rssi_fast(void) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "TEST Y2: RSSI FAST (2s @5ms)");
+  ESP_LOGW(TAG, "(NFC reader should be touching)");
+
+  (void)hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN | ST25R3916_OP_CTRL_RX_EN);
+  vTaskDelay(pdMS_TO_TICKS(5));
+  (void)hb_nfc_spi_direct_cmd(ST25R3916_CMD_CLEAR_RSSI);
+  vTaskDelay(pdMS_TO_TICKS(2));
+
+  uint8_t max_rssi = 0;
+  uint8_t max_ad = 0;
+  int64_t t0 = esp_timer_get_time();
+  const int step_ms = 5;
+  const int total_ms = 2000;
+  const int samples = total_ms / step_ms;
+  bool spi_ok = true;
+
+  for (int i = 0; i < samples; i++) {
+    uint8_t rssi = 0;
+    if (hb_nfc_spi_reg_read(ST25R3916_REG_RSSI_RESULT, &rssi) != HB_NFC_OK) {
+      ESP_LOGW(TAG, "SPI error reading RSSI (i=%d)", i);
+      spi_ok = false;
+      break;
+    }
+    if (rssi > max_rssi)
+      max_rssi = rssi;
+
+    if ((i % 10) == 0) {
+      uint8_t aux = 0, ad = 0;
+      (void)hb_nfc_spi_direct_cmd(ST25R3916_CMD_MEAS_AMPLITUDE);
+      vTaskDelay(1);
+      if (hb_nfc_spi_reg_read(ST25R3916_REG_AD_RESULT, &ad) != HB_NFC_OK ||
+          hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux) != HB_NFC_OK) {
+        ESP_LOGW(TAG, "SPI error reading AD/AUX (i=%d)", i);
+        spi_ok = false;
+        break;
+      }
+      if (ad > max_ad)
+        max_ad = ad;
+
+      int ms = (int)((esp_timer_get_time() - t0) / 1000);
+      ESP_LOGW(TAG,
+               "t=%dms RSSI=0x%02X AD=%u AUX=0x%02X [efd=%d osc=%d]",
+               ms,
+               rssi,
+               ad,
+               aux,
+               aux & 1,
+               (aux >> 2) & 1);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(step_ms));
+  }
+
+  ESP_LOGW(TAG, "max RSSI=0x%02X max AD=%u", max_rssi, max_ad);
+  if (spi_ok) {
+    (void)hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+  }
+  ESP_LOGW(TAG, "");
+}
+
+static void test_rf_collision(void) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "TEST Z: RF COLLISION (NFC INITIAL)");
+  ESP_LOGW(TAG, "(reader NFC touching, waiting IRQ)");
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_MODE, ST25R3916_MODE_TARGET_NFCA);
+  hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, EMU_DIAG_BIT_RATE_DEFAULT);
+  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443A, EMU_DIAG_ISO14443A_DISABLED);
+  hb_nfc_spi_reg_write(ST25R3916_REG_PASSIVE_TARGET, EMU_DIAG_PASSIVE_TGT_OFF);
+  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_ACT, EMU_DIAG_FIELD_ACT_SENSITIVE);
+  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_DEACT, EMU_DIAG_FIELD_DEACT_SENSITIVE);
+  hb_nfc_spi_reg_write(ST25R3916_REG_PT_MOD, EMU_DIAG_PT_MOD_DEFAULT);
+  mfc_emu_load_pt_memory();
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_MAIN_INT, EMU_DIAG_IRQ_UNMASK_ALL);
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TIMER_NFC_INT, EMU_DIAG_IRQ_UNMASK_ALL);
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_ERROR_WUP_INT, EMU_DIAG_IRQ_UNMASK_ALL);
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TARGET_INT, EMU_DIAG_IRQ_UNMASK_ALL);
+  {
+    st25r3916_irq_status_t s;
+    (void)st25r3916_irq_read(&s);
+  }
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN | ST25R3916_OP_CTRL_RX_EN);
+  vTaskDelay(pdMS_TO_TICKS(5));
+
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_NFC_INIT_COL);
+  vTaskDelay(pdMS_TO_TICKS(2));
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
+
+  int64_t t0 = esp_timer_get_time();
+  while ((esp_timer_get_time() - t0) < 5000000LL) {
+    uint8_t tgt = 0, main = 0, err = 0;
+    hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt);
+    hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main);
+    hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &err);
+    if (tgt || main || err) {
+      int ms = (int)((esp_timer_get_time() - t0) / 1000);
+      ESP_LOGW(TAG, "[%dms] TGT=0x%02X MAIN=0x%02X ERR=0x%02X", ms, tgt, main, err);
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+  ESP_LOGW(TAG, "");
+}
+
+hb_nfc_err_t emu_diag_full(void) {
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "EMULATION DIAGNOSTIC v2");
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "KEEP THE NFC READER CLOSE DURING");
+  ESP_LOGW(TAG, "THE ENTIRE DIAGNOSTIC (~60s total)");
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "Waiting 5s... Present the NFC reader now!");
+  vTaskDelay(pdMS_TO_TICKS(5000));
+
+  dump_key_regs("INITIAL STATE");
+
+  test_poller_vs_target_regs();
+
+  test_oscillator();
+
+  test_aux_def_sweep();
+
+  test_self_field_measure();
+
+  test_rssi_monitor(5);
+  test_rssi_fast();
+
+  test_pt_memory();
+
+  test_field_detection();
+
+  test_rf_collision();
+
+  bool ok1 = test_target_config(1,
+                                ST25R3916_OP_CTRL_EN | ST25R3916_OP_CTRL_RX_EN,
+                                EMU_DIAG_FIELD_ACT_SENSITIVE,
+                                EMU_DIAG_FIELD_DEACT_SENSITIVE,
+                                EMU_DIAG_PT_MOD_DEFAULT,
+                                EMU_DIAG_PASSIVE_TGT_OFF,
+                                false);
+  if (ok1)
+    goto done;
+
+  bool ok2 =
+      test_target_config(2,
+                         ST25R3916_OP_CTRL_EN | ST25R3916_OP_CTRL_RX_EN | EMU_DIAG_OP_CTRL_WU_EN,
+                         EMU_DIAG_FIELD_ACT_SENSITIVE,
+                         EMU_DIAG_FIELD_DEACT_SENSITIVE,
+                         EMU_DIAG_PT_MOD_DEFAULT,
+                         EMU_DIAG_PASSIVE_TGT_OFF,
+                         false);
+  if (ok2)
+    goto done;
+
+  bool ok3 = test_target_config(3,
+                                ST25R3916_OP_CTRL_FIELD_ON,
+                                EMU_DIAG_FIELD_ACT_SENSITIVE,
+                                EMU_DIAG_FIELD_DEACT_SENSITIVE,
+                                EMU_DIAG_PT_MOD_DEFAULT,
+                                EMU_DIAG_PASSIVE_TGT_OFF,
+                                false);
+  if (ok3)
+    goto done;
+
+  bool ok4 = test_target_config(4,
+                                ST25R3916_OP_CTRL_FIELD_ON | EMU_DIAG_OP_CTRL_WU_EN,
+                                EMU_DIAG_FIELD_ACT_SENSITIVE,
+                                EMU_DIAG_FIELD_DEACT_SENSITIVE,
+                                EMU_DIAG_PT_MOD_DEFAULT,
+                                EMU_DIAG_PASSIVE_TGT_OFF,
+                                true);
+  if (ok4)
+    goto done;
+
+  test_target_config(5,
+                     ST25R3916_OP_CTRL_EN | ST25R3916_OP_CTRL_RX_EN,
+                     EMU_DIAG_FIELD_ACT_LOW,
+                     EMU_DIAG_FIELD_DEACT_LOW,
+                     EMU_DIAG_PT_MOD_ALT,
+                     EMU_DIAG_PASSIVE_TGT_OFF,
+                     true);
+
+done:
+  dump_key_regs("FINAL STATE");
+
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "DIAGNOSTIC COMPLETE");
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "If AD is always 0:");
+  ESP_LOGW(TAG, "Antenna does not pick up external field");
+  ESP_LOGW(TAG, "Needs matching circuit for passive RX");
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "If AD > 0 but no WU_A:");
+  ESP_LOGW(TAG, "GOTO_SENSE is not activating correctly");
+  ESP_LOGW(TAG, "Or thresholds need to be adjusted");
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "If WU_A OK but no SDD_C:");
+  ESP_LOGW(TAG, "PT Memory or anti-collision has a problem");
+  ESP_LOGW(TAG, "");
+  ESP_LOGW(TAG, "COPY THE FULL SERIAL OUTPUT AND SHARE IT!");
+  ESP_LOGW(TAG, "");
+
+  return HB_NFC_OK;
+}
+
+void emu_diag_monitor(int seconds) {
+  ESP_LOGW(TAG, "Monitor %ds...", seconds);
+  int64_t t0 = esp_timer_get_time();
+  while ((esp_timer_get_time() - t0) < (int64_t)seconds * 1000000LL) {
+    uint8_t tgt = 0, mi = 0, ei = 0;
+    hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt);
+    hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &mi);
+    hb_nfc_spi_reg_read(ST25R3916_REG_ERROR_INT, &ei);
+    if (tgt || mi || ei) {
+      ESP_LOGW(TAG,
+               "[%dms] TGT=0x%02X MAIN=0x%02X ERR=0x%02X",
+               (int)((esp_timer_get_time() - t0) / 1000),
+               tgt,
+               mi,
+               ei);
+    }
+    vTaskDelay(1);
+  }
+}

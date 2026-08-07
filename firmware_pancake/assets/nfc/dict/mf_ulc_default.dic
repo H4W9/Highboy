@@ -1,0 +1,5 @@
+# MIFARE Ultralight C — default 3DES authentication keys (16 bytes each).
+# Format: one 16-byte hex key per line. Lines starting with '#' are comments.
+
+# NXP factory default (all zeros)
+00000000000000000000000000000000

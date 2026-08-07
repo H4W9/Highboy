@@ -1,0 +1,693 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+/**
+ * @file iso14443b_emu.c
+ * @brief ISO 14443-B passive target emulator: T4T-B NDEF and DESFire delegation.
+ * Reference: ISO/IEC 14443-3B, ISO/IEC 14443-4, NFC Forum T4T.
+ */
+#include "iso14443b_emu.h"
+
+#include <string.h>
+#include <stdio.h>
+#include <stdbool.h>
+
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "st25r3916_core.h"
+#include "st25r3916_reg.h"
+#include "st25r3916_cmd.h"
+#include "st25r3916_fifo.h"
+#include "st25r3916_irq.h"
+#include "hb_nfc_spi.h"
+#include "mf_desfire_emu.h"
+
+static const char *TAG = "ISO14443B_EMU";
+
+#define MODE_TARGET_NFCB 0x90U
+#define OP_CTRL_TARGET   0xC3U
+
+#define TIMER_I_EON 0x10U
+
+#define ISO14443B_CMD_REQB   0x05U
+#define ISO14443B_CMD_ATTRIB 0x1DU
+#define ISO14443B_CMD_HLTB   0x50U
+
+#define T4T_CC_LEN   15
+#define T4T_NDEF_MAX 128
+#define T4T_FILE_MAX (2 + T4T_NDEF_MAX)
+#define T4T_ML       0x0050U /* 80 bytes */
+#define T4T_NDEF_FID 0xE104U
+#define T4T_CC_FID   0xE103U
+
+#define AUX_DISPLAY_OSC_MASK 0x14U
+#define FIFO_LEN_MASK        0x7FU
+#define CID_MASK             0x0FU
+
+#define T4T_CC_VERSION_20 0x20U
+#define T4T_CC_TLV_NDEF   0x04U
+#define T4T_CC_TLV_LEN    0x06U
+
+#define NDEF_REC_HDR_TEXT    0xD1U
+#define NDEF_TYPE_LEN_TEXT   0x01U
+#define NDEF_TEXT_UTF8_LANG2 0x02U
+
+#define PCB_I_BLOCK         0x02U
+#define PCB_I_CHAIN         0x10U
+#define PCB_R_ACK           0xA2U
+#define PCB_BLOCK_NUM_MASK  0x01U
+#define PCB_CID_FLAG        0x08U
+#define PCB_NAD_FLAG        0x04U
+#define PCB_BLOCK_TYPE_MASK 0xC0U
+#define PCB_R_BLOCK_ID      0x80U
+#define PCB_I_BLOCK_ID      0x00U
+
+#define APDU_SW_OK             0x9000U
+#define APDU_SW_WRONG_LEN      0x6700U
+#define APDU_SW_CONDITIONS     0x6985U
+#define APDU_SW_FILE_NOT_FOUND 0x6A82U
+#define APDU_SW_WRONG_OFFSET   0x6B00U
+#define APDU_SW_WRONG_LE       0x6C00U
+#define APDU_SW_WRONG_P1P2     0x6A86U
+#define APDU_INS_SELECT        0xA4U
+#define APDU_INS_READ_BINARY   0xB0U
+#define APDU_INS_UPDATE_BIN    0xD6U
+#define APDU_HEADER_SIZE       5
+#define APDU_LE_ZERO_MEANS     256
+
+#define ISO14443B_IO_CONF2_SUP_AAT  0x80U
+#define ISO14443B_PT_MOD_OOK        0x60U
+#define ISO14443B_OSC_TIMEOUT_MS    200
+#define ISO14443B_DELAY_OSC_POLL_MS 1
+#define ISO14443B_DELAY_SHORT_MS    2
+#define ISO14443B_DELAY_MEDIUM_MS   5
+#define ISO14443B_DELAY_LONG_MS     10
+#define ISO14443B_SENSE_TIMEOUT_MS  500
+#define ISO14443B_ACTIVE_TIMEOUT_MS 2000
+#define ISO14443B_LOG_INTERVAL      200U
+#define ISO14443B_BUF_SIZE          300
+
+static uint32_t s_idle_log = 0;
+
+static const uint8_t NDEF_APP_AID[] = {0xD2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01};
+#define NDEF_APP_AID_LEN 7
+
+typedef enum {
+  ISO14443B_STATE_SLEEP,
+  ISO14443B_STATE_SENSE,
+  ISO14443B_STATE_ACTIVE,
+} iso14443b_state_t;
+
+typedef enum {
+  T4T_FILE_NONE = 0,
+  T4T_FILE_CC,
+  T4T_FILE_NDEF,
+} t4t_file_t;
+
+static iso14443b_state_t s_state = ISO14443B_STATE_SLEEP;
+static bool s_init_done = false;
+static bool s_activated = false;
+
+static bool s_app_selected = false;
+static t4t_file_t s_file = T4T_FILE_NONE;
+
+static iso14443b_emu_card_t s_card;
+
+static uint8_t s_cc[T4T_CC_LEN];
+static uint8_t s_ndef_file[T4T_FILE_MAX];
+
+static uint8_t s_last_resp[260];
+static int s_last_resp_len = 0;
+
+static uint8_t s_chain_buf[300];
+static size_t s_chain_len = 0;
+static bool s_chain_active = false;
+static uint8_t s_pcd_cid = 0;
+
+static TickType_t s_sense_tick = 0;
+static TickType_t s_active_tick = 0;
+
+static bool wait_oscillator(int timeout_ms);
+static void build_cc(void);
+static void build_ndef_text(const char *text);
+static void tx_with_crc(const uint8_t *data, int len);
+static void send_atqb(void);
+static void send_attrib_ok(void);
+static void send_i_block_resp(const uint8_t *inf, int inf_len, uint8_t pcb_in);
+static void send_r_ack(uint8_t pcb_in);
+static void apdu_resp(uint8_t *out, int *out_len, const uint8_t *data, int data_len, uint16_t sw);
+static uint16_t file_len(t4t_file_t f);
+static uint8_t *file_ptr(t4t_file_t f);
+static void handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t pcb_in);
+
+static bool wait_oscillator(int timeout_ms) {
+  for (int i = 0; i < timeout_ms; i++) {
+    uint8_t aux = 0, mi = 0, ti = 0;
+    hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+    hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &mi);
+    hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &ti);
+    if (((aux & AUX_DISPLAY_OSC_MASK) != 0) || ((mi & ST25R3916_IRQ_MAIN_OSC) != 0) ||
+        ((ti & ST25R3916_IRQ_TGT_OSCF) != 0)) {
+      ESP_LOGI(TAG, "Osc OK in %dms: AUX=0x%02X MAIN=0x%02X TGT=0x%02X", i, aux, mi, ti);
+      return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(ISO14443B_DELAY_OSC_POLL_MS));
+  }
+  ESP_LOGW(TAG, "Osc timeout - continuing");
+  return false;
+}
+
+static void build_cc(void) {
+  s_cc[0] = 0x00;
+  s_cc[1] = T4T_CC_LEN;
+  s_cc[2] = T4T_CC_VERSION_20;
+  s_cc[3] = (uint8_t)((T4T_ML >> 8) & 0xFF);
+  s_cc[4] = (uint8_t)(T4T_ML & 0xFF);
+  s_cc[5] = (uint8_t)((T4T_ML >> 8) & 0xFF);
+  s_cc[6] = (uint8_t)(T4T_ML & 0xFF);
+  s_cc[7] = T4T_CC_TLV_NDEF;
+  s_cc[8] = T4T_CC_TLV_LEN;
+  s_cc[9] = (uint8_t)((T4T_NDEF_FID >> 8) & 0xFF);
+  s_cc[10] = (uint8_t)(T4T_NDEF_FID & 0xFF);
+  s_cc[11] = 0x00;
+  s_cc[12] = (uint8_t)T4T_NDEF_MAX;
+  s_cc[13] = 0x00;
+  s_cc[14] = 0x00;
+}
+
+static void build_ndef_text(const char *text) {
+  memset(s_ndef_file, 0x00, sizeof(s_ndef_file));
+
+  if (text == NULL)
+    text = "High Boy NFC T4T-B";
+  size_t tl = strlen(text);
+  size_t max_text = (T4T_NDEF_MAX > 7) ? (T4T_NDEF_MAX - 7) : 0;
+  if (tl > max_text)
+    tl = max_text;
+  size_t pl = 1 + 2 + tl;
+
+  size_t pos = 2;
+  s_ndef_file[pos++] = NDEF_REC_HDR_TEXT;
+  s_ndef_file[pos++] = NDEF_TYPE_LEN_TEXT;
+  s_ndef_file[pos++] = (uint8_t)pl;
+  s_ndef_file[pos++] = 'T';
+  s_ndef_file[pos++] = NDEF_TEXT_UTF8_LANG2;
+  s_ndef_file[pos++] = 'p';
+  s_ndef_file[pos++] = 't';
+
+  memcpy(&s_ndef_file[pos], text, tl);
+  pos += tl;
+
+  uint16_t nlen = (uint16_t)(pos - 2);
+  s_ndef_file[0] = (uint8_t)((nlen >> 8) & 0xFF);
+  s_ndef_file[1] = (uint8_t)(nlen & 0xFF);
+}
+
+hb_nfc_err_t iso14443b_emu_init_default(void) {
+  build_cc();
+  build_ndef_text("High Boy NFC T4T-B");
+
+  s_card.pupi[0] = 0x11;
+  s_card.pupi[1] = 0x22;
+  s_card.pupi[2] = 0x33;
+  s_card.pupi[3] = 0x44;
+  memset(s_card.app_data, 0x00, sizeof(s_card.app_data));
+  s_card.prot_info[0] = 0x80;
+  s_card.prot_info[1] = 0x00;
+  s_card.prot_info[2] = 0x00;
+
+  s_state = ISO14443B_STATE_SLEEP;
+  s_init_done = true;
+  s_activated = false;
+  s_app_selected = false;
+  s_file = T4T_FILE_NONE;
+  s_chain_active = false;
+  s_chain_len = 0;
+  s_pcd_cid = 0;
+  s_sense_tick = 0;
+  s_active_tick = 0;
+  ESP_LOGI(TAG, "ISO14443B init: NDEF max=%u", (unsigned)T4T_NDEF_MAX);
+  return HB_NFC_OK;
+}
+
+hb_nfc_err_t iso14443b_emu_configure_target(void) {
+  if (!s_init_done)
+    return HB_NFC_ERR_INTERNAL;
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+  vTaskDelay(pdMS_TO_TICKS(ISO14443B_DELAY_MEDIUM_MS));
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_SET_DEFAULT);
+  vTaskDelay(pdMS_TO_TICKS(ISO14443B_DELAY_LONG_MS));
+
+  uint8_t ic = 0;
+  hb_nfc_spi_reg_read(ST25R3916_REG_IC_IDENTITY, &ic);
+  if (ic == 0x00 || ic == 0xFF)
+    return HB_NFC_ERR_INTERNAL;
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_IO_CONF2, ISO14443B_IO_CONF2_SUP_AAT);
+  vTaskDelay(pdMS_TO_TICKS(ISO14443B_DELAY_SHORT_MS));
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_EN);
+  wait_oscillator(ISO14443B_OSC_TIMEOUT_MS);
+
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_ADJUST_REGULATORS);
+  vTaskDelay(pdMS_TO_TICKS(ISO14443B_DELAY_LONG_MS));
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_MODE, MODE_TARGET_NFCB);
+  hb_nfc_spi_reg_write(ST25R3916_REG_AUX_DEF, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_BIT_RATE, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_ISO14443B_FELICA, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_PASSIVE_TARGET, 0x00);
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_ACT, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_FIELD_THRESH_DEACT, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_PT_MOD, ISO14443B_PT_MOD_OOK);
+
+  {
+    st25r3916_irq_status_t s;
+    (void)st25r3916_irq_read(&s);
+  }
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_MAIN_INT, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TIMER_NFC_INT, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_ERROR_WUP_INT, 0x00);
+  hb_nfc_spi_reg_write(ST25R3916_REG_MASK_TARGET_INT, 0x00);
+
+  ESP_LOGI(TAG, "ISO14443B target configured");
+  return HB_NFC_OK;
+}
+
+hb_nfc_err_t iso14443b_emu_start(void) {
+  if (!s_init_done)
+    return HB_NFC_ERR_INTERNAL;
+
+  {
+    st25r3916_irq_status_t s;
+    (void)st25r3916_irq_read(&s);
+  }
+
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, OP_CTRL_TARGET);
+  vTaskDelay(pdMS_TO_TICKS(ISO14443B_DELAY_MEDIUM_MS));
+
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+  vTaskDelay(pdMS_TO_TICKS(ISO14443B_DELAY_SHORT_MS));
+
+  s_state = ISO14443B_STATE_SLEEP;
+  ESP_LOGI(TAG, "ISO14443B emulation active - present a reader");
+  return HB_NFC_OK;
+}
+
+void iso14443b_emu_stop(void) {
+  hb_nfc_spi_reg_write(ST25R3916_REG_OP_CTRL, ST25R3916_OP_CTRL_FIELD_OFF);
+  s_state = ISO14443B_STATE_SLEEP;
+  s_init_done = false;
+  ESP_LOGI(TAG, "ISO14443B emulation stopped");
+}
+
+static void tx_with_crc(const uint8_t *data, int len) {
+  if (data == NULL || len <= 0)
+    return;
+  st25r3916_fifo_clear();
+  st25r3916_fifo_set_tx_bytes((uint16_t)len, 0);
+  st25r3916_fifo_load(data, (size_t)len);
+  hb_nfc_spi_direct_cmd(ST25R3916_CMD_TX_WITH_CRC);
+}
+
+static void send_atqb(void) {
+  uint8_t atqb[11];
+  memcpy(&atqb[0], s_card.pupi, 4);
+  memcpy(&atqb[4], s_card.app_data, 4);
+  memcpy(&atqb[8], s_card.prot_info, 3);
+  tx_with_crc(atqb, sizeof(atqb));
+}
+
+static void send_attrib_ok(void) {
+  uint8_t resp = 0x00;
+  tx_with_crc(&resp, 1);
+}
+
+static void send_i_block_resp(const uint8_t *inf, int inf_len, uint8_t pcb_in) {
+  uint8_t resp[300];
+  int pos = 0;
+  resp[pos++] = (uint8_t)(PCB_I_BLOCK | (pcb_in & PCB_BLOCK_NUM_MASK));
+  if (pcb_in & PCB_CID_FLAG) {
+    resp[pos++] = s_pcd_cid;
+  }
+  if (inf_len > 0 && inf_len < (int)sizeof(resp) - 1) {
+    memcpy(&resp[pos], inf, (size_t)inf_len);
+    pos += inf_len;
+  }
+  tx_with_crc(resp, pos);
+  if (pos < (int)sizeof(s_last_resp)) {
+    memcpy(s_last_resp, resp, (size_t)pos);
+    s_last_resp_len = pos;
+  }
+}
+
+static void send_r_ack(uint8_t pcb_in) {
+  uint8_t resp[2];
+  int pos = 0;
+  resp[pos++] = (uint8_t)(PCB_R_ACK | (pcb_in & PCB_BLOCK_NUM_MASK));
+  if (pcb_in & PCB_CID_FLAG) {
+    resp[pos++] = s_pcd_cid;
+  }
+  tx_with_crc(resp, pos);
+}
+
+static void apdu_resp(uint8_t *out, int *out_len, const uint8_t *data, int data_len, uint16_t sw) {
+  int pos = 0;
+  if (data != NULL && data_len > 0) {
+    memcpy(&out[pos], data, (size_t)data_len);
+    pos += data_len;
+  }
+  out[pos++] = (uint8_t)((sw >> 8) & 0xFF);
+  out[pos++] = (uint8_t)(sw & 0xFF);
+  *out_len = pos;
+}
+
+static uint16_t file_len(t4t_file_t f) {
+  if (f == T4T_FILE_CC)
+    return T4T_CC_LEN;
+  if (f == T4T_FILE_NDEF) {
+    uint16_t nlen = (uint16_t)((s_ndef_file[0] << 8) | s_ndef_file[1]);
+    if (nlen > T4T_NDEF_MAX)
+      nlen = T4T_NDEF_MAX;
+    return (uint16_t)(nlen + 2);
+  }
+  return 0;
+}
+
+static uint8_t *file_ptr(t4t_file_t f) {
+  if (f == T4T_FILE_CC)
+    return s_cc;
+  if (f == T4T_FILE_NDEF)
+    return s_ndef_file;
+  return NULL;
+}
+
+static void handle_apdu(const uint8_t *apdu, int apdu_len, uint8_t pcb_in) {
+  uint8_t resp[260];
+  int resp_len = 0;
+
+  if (mf_desfire_emu_handle_apdu(apdu, apdu_len, resp, &resp_len)) {
+    send_i_block_resp(resp, resp_len, pcb_in);
+    return;
+  }
+
+  if (apdu_len < 4) {
+    apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_LEN);
+    send_i_block_resp(resp, resp_len, pcb_in);
+    return;
+  }
+
+  uint8_t cla = apdu[0];
+  uint8_t ins = apdu[1];
+  uint8_t p1 = apdu[2];
+  uint8_t p2 = apdu[3];
+  (void)cla;
+
+  if (ins == APDU_INS_SELECT) {
+    if (apdu_len < APDU_HEADER_SIZE) {
+      apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_LEN);
+    } else {
+      uint8_t lc = apdu[4];
+      if (apdu_len < APDU_HEADER_SIZE + lc) {
+        apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_LEN);
+      } else if (p1 == 0x04 && lc == NDEF_APP_AID_LEN &&
+                 memcmp(&apdu[APDU_HEADER_SIZE], NDEF_APP_AID, NDEF_APP_AID_LEN) == 0) {
+        s_app_selected = true;
+        s_file = T4T_FILE_NONE;
+        apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_OK);
+      } else if (p1 == 0x00 && lc == 2) {
+        uint16_t fid = (uint16_t)((apdu[APDU_HEADER_SIZE] << 8) | apdu[APDU_HEADER_SIZE + 1]);
+        if (fid == T4T_CC_FID) {
+          s_file = T4T_FILE_CC;
+          apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_OK);
+        } else if (fid == T4T_NDEF_FID) {
+          s_file = T4T_FILE_NDEF;
+          apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_OK);
+        } else {
+          apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_FILE_NOT_FOUND);
+        }
+      } else {
+        apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_FILE_NOT_FOUND);
+      }
+    }
+    send_i_block_resp(resp, resp_len, pcb_in);
+    return;
+  }
+
+  if (ins == APDU_INS_READ_BINARY) {
+    if (apdu_len < APDU_HEADER_SIZE) {
+      apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_LEN);
+    } else if (s_file == T4T_FILE_NONE || !s_app_selected) {
+      apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_CONDITIONS);
+    } else {
+      uint16_t off = (uint16_t)((p1 << 8) | p2);
+      uint16_t flen = file_len(s_file);
+      uint8_t le = apdu[4];
+      uint16_t max_le = (le == 0) ? APDU_LE_ZERO_MEANS : le;
+      if (max_le > T4T_ML) {
+        apdu_resp(resp, &resp_len, NULL, 0, (uint16_t)(APDU_SW_WRONG_LE | (T4T_ML & 0xFF)));
+        send_i_block_resp(resp, resp_len, pcb_in);
+        return;
+      }
+      if (off >= flen) {
+        apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_OFFSET);
+      } else {
+        uint16_t avail = (uint16_t)(flen - off);
+        uint16_t rd = (avail < max_le) ? avail : max_le;
+        uint8_t *fp = file_ptr(s_file);
+        apdu_resp(resp, &resp_len, &fp[off], rd, APDU_SW_OK);
+      }
+    }
+    send_i_block_resp(resp, resp_len, pcb_in);
+    return;
+  }
+
+  if (ins == APDU_INS_UPDATE_BIN) {
+    if (apdu_len < APDU_HEADER_SIZE) {
+      apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_LEN);
+    } else if (s_file != T4T_FILE_NDEF || !s_app_selected) {
+      apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_CONDITIONS);
+    } else {
+      uint16_t off = (uint16_t)((p1 << 8) | p2);
+      uint8_t lc = apdu[4];
+      if (apdu_len < APDU_HEADER_SIZE + lc) {
+        apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_LEN);
+      } else if (lc > T4T_ML) {
+        apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_LEN);
+      } else if (off + lc > (uint16_t)sizeof(s_ndef_file)) {
+        apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_OFFSET);
+      } else {
+        memcpy(&s_ndef_file[off], &apdu[APDU_HEADER_SIZE], lc);
+        apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_OK);
+      }
+    }
+    send_i_block_resp(resp, resp_len, pcb_in);
+    return;
+  }
+
+  apdu_resp(resp, &resp_len, NULL, 0, APDU_SW_WRONG_P1P2);
+  send_i_block_resp(resp, resp_len, pcb_in);
+}
+
+void iso14443b_emu_run_step(void) {
+  uint8_t tgt_irq = 0;
+  uint8_t main_irq = 0;
+  uint8_t timer_irq = 0;
+
+  hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
+  hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
+  hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
+
+  if (s_state == ISO14443B_STATE_SLEEP) {
+    bool wake = (timer_irq & TIMER_I_EON) || (tgt_irq & ST25R3916_IRQ_TGT_WU_A) ||
+                (tgt_irq & ST25R3916_IRQ_TGT_WU_F);
+    if (wake) {
+      ESP_LOGI(TAG, "SLEEP -> SENSE (tgt=0x%02X tmr=0x%02X)", tgt_irq, timer_irq);
+      s_sense_tick = xTaskGetTickCount();
+      s_active_tick = s_sense_tick;
+      s_state = ISO14443B_STATE_SENSE;
+      mf_desfire_emu_reset();
+      hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SENSE);
+      hb_nfc_spi_reg_read(ST25R3916_REG_TARGET_INT, &tgt_irq);
+      hb_nfc_spi_reg_read(ST25R3916_REG_MAIN_INT, &main_irq);
+      hb_nfc_spi_reg_read(ST25R3916_REG_TIMER_NFC_INT, &timer_irq);
+    }
+    return;
+  }
+
+  if (s_state == ISO14443B_STATE_SENSE) {
+    if (!(main_irq & ST25R3916_IRQ_MAIN_FWL)) {
+      TickType_t now = xTaskGetTickCount();
+      if ((now - s_sense_tick) > pdMS_TO_TICKS(ISO14443B_SENSE_TIMEOUT_MS)) {
+        ESP_LOGI(TAG, "SENSE: idle timeout -> SLEEP");
+        s_state = ISO14443B_STATE_SLEEP;
+        mf_desfire_emu_reset();
+        hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+      }
+      if ((++s_idle_log % ISO14443B_LOG_INTERVAL) == 0U) {
+        uint8_t fs1 = 0, aux = 0;
+        hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fs1);
+        hb_nfc_spi_reg_read(ST25R3916_REG_AUX_DISPLAY, &aux);
+        ESP_LOGI(TAG,
+                 "[SENSE] main=0x%02X tgt=0x%02X tmr=0x%02X fs1=0x%02X aux=0x%02X",
+                 main_irq,
+                 tgt_irq,
+                 timer_irq,
+                 fs1,
+                 aux);
+      }
+      return;
+    }
+
+    uint8_t buf[64] = {0};
+    uint8_t fs1 = 0;
+    hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fs1);
+    int n = fs1 & FIFO_LEN_MASK;
+    if (n <= 0)
+      return;
+    if (n > (int)sizeof(buf))
+      n = (int)sizeof(buf);
+    hb_nfc_spi_fifo_read(buf, (uint8_t)n);
+
+    if (buf[0] == ISO14443B_CMD_REQB && n >= 3) {
+      ESP_LOGI(TAG, "REQB");
+      send_atqb();
+      return;
+    }
+
+    if (buf[0] == ISO14443B_CMD_ATTRIB && n >= 9) {
+      if (memcmp(&buf[1], s_card.pupi, 4) != 0) {
+        ESP_LOGW(TAG, "ATTRIB: PUPI mismatch");
+        return;
+      }
+      s_pcd_cid = buf[8] & CID_MASK;
+      s_state = ISO14443B_STATE_ACTIVE;
+      s_activated = true;
+      s_active_tick = xTaskGetTickCount();
+      ESP_LOGI(TAG, "ATTRIB OK (CID=%u)", (unsigned)s_pcd_cid);
+      send_attrib_ok();
+      return;
+    }
+
+    if (buf[0] == ISO14443B_CMD_HLTB && n >= 5) {
+      if (memcmp(&buf[1], s_card.pupi, 4) == 0) {
+        ESP_LOGI(TAG, "HLTB -> SLEEP");
+        s_state = ISO14443B_STATE_SLEEP;
+        s_activated = false;
+        mf_desfire_emu_reset();
+        hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+      }
+      return;
+    }
+
+    return;
+  }
+
+  if (!(main_irq & ST25R3916_IRQ_MAIN_FWL))
+    goto idle_active;
+
+  uint8_t buf[ISO14443B_BUF_SIZE] = {0};
+  uint8_t fs1 = 0;
+  hb_nfc_spi_reg_read(ST25R3916_REG_FIFO_STATUS1, &fs1);
+  int n = fs1 & FIFO_LEN_MASK;
+  if (n <= 0)
+    return;
+  if (n > (int)sizeof(buf))
+    n = (int)sizeof(buf);
+  hb_nfc_spi_fifo_read(buf, (uint8_t)n);
+  int len = n;
+
+  if (len <= 0)
+    return;
+
+  if (!s_activated)
+    return;
+
+  uint8_t pcb = buf[0];
+  if ((pcb & PCB_BLOCK_TYPE_MASK) == PCB_R_BLOCK_ID) {
+    if (s_last_resp_len > 0) {
+      tx_with_crc(s_last_resp, s_last_resp_len);
+    }
+    return;
+  }
+
+  if ((pcb & PCB_BLOCK_TYPE_MASK) != PCB_I_BLOCK_ID) {
+    return;
+  }
+
+  bool chaining = (pcb & PCB_I_CHAIN) != 0U;
+  int idx = 1;
+  if (pcb & PCB_CID_FLAG) {
+    s_pcd_cid = buf[idx];
+    idx++;
+  }
+  if (pcb & PCB_NAD_FLAG) {
+    idx++;
+  }
+  if (idx > len)
+    return;
+  const uint8_t *inf = &buf[idx];
+  int inf_len = len - idx;
+
+  if (chaining) {
+    if (!s_chain_active) {
+      s_chain_active = true;
+      s_chain_len = 0;
+    }
+    if (s_chain_len + (size_t)inf_len < sizeof(s_chain_buf)) {
+      memcpy(&s_chain_buf[s_chain_len], inf, (size_t)inf_len);
+      s_chain_len += (size_t)inf_len;
+    }
+    send_r_ack(pcb);
+    return;
+  }
+
+  if (s_chain_active) {
+    if (s_chain_len + (size_t)inf_len < sizeof(s_chain_buf)) {
+      memcpy(&s_chain_buf[s_chain_len], inf, (size_t)inf_len);
+      s_chain_len += (size_t)inf_len;
+    }
+    ESP_LOGI(TAG, "APDU (chained) len=%u", (unsigned)s_chain_len);
+    handle_apdu(s_chain_buf, (int)s_chain_len, pcb);
+    s_chain_active = false;
+    s_chain_len = 0;
+    return;
+  }
+
+  ESP_LOGI(TAG, "APDU len=%d", inf_len);
+  handle_apdu(inf, inf_len, pcb);
+  s_active_tick = xTaskGetTickCount();
+  return;
+
+idle_active: {
+  TickType_t now = xTaskGetTickCount();
+  if ((now - s_active_tick) > pdMS_TO_TICKS(ISO14443B_ACTIVE_TIMEOUT_MS)) {
+    ESP_LOGI(TAG, "ACTIVE: idle timeout -> SLEEP");
+    s_state = ISO14443B_STATE_SLEEP;
+    s_activated = false;
+    s_app_selected = false;
+    s_file = T4T_FILE_NONE;
+    s_chain_active = false;
+    s_chain_len = 0;
+    s_pcd_cid = 0;
+    mf_desfire_emu_reset();
+    hb_nfc_spi_direct_cmd(ST25R3916_CMD_GOTO_SLEEP);
+  }
+}
+}

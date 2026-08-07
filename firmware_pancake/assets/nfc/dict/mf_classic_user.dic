@@ -1,0 +1,6 @@
+# MIFARE Classic user keys
+# Add your own 6-byte hex keys here, one per line. Lines starting with '#' are comments.
+# Keys discovered automatically during read/crack operations are appended here.
+#
+# Example:
+# 112233445566

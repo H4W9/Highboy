@@ -1,0 +1,7 @@
+# Name,     Type, SubType,  Offset,   Size,     Flags
+# 8MB flash layout — Pancake ESP32-C5 (Phase 1: single factory app, no OTA)
+nvs,        data,       nvs,            0x9000,     24K,
+phy_init,   data,       phy,            ,           4K,
+factory,    app,        factory,        0x20000,    4M,
+storage,    data,       fat,            ,           1M,
+assets,     data,       littlefs,       ,           2M,

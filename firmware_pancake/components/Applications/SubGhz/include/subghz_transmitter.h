@@ -1,0 +1,54 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+#ifndef SUBGHZ_TRANSMITTER_H
+#define SUBGHZ_TRANSMITTER_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "esp_err.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Initialize the Sub-GHz transmitter.
+ *
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+esp_err_t subghz_tx_init(void);
+
+/**
+ * @brief Stop the Sub-GHz transmitter.
+ */
+void subghz_tx_stop(void);
+
+/**
+ * @brief Transmit a raw pulse sequence.
+ *
+ * @param timings  Array of signed pulse durations in microseconds
+ *                 (positive = high, negative = low).
+ * @param count    Number of elements in the timings array.
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
+ */
+esp_err_t subghz_tx_send_raw(const int32_t *timings, size_t count);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // SUBGHZ_TRANSMITTER_H

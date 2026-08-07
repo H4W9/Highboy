@@ -1,0 +1,91 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+/**
+ * @file storage_impl.h
+ * @brief File, directory, and storage info operations — backend agnostic.
+ */
+
+#ifndef STORAGE_IMPL_H
+#define STORAGE_IMPL_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <time.h>
+
+#include "esp_err.h"
+
+typedef struct {
+  char path[256];
+  size_t size;
+  time_t modified_time;
+  time_t created_time;
+  bool is_directory;
+  bool is_hidden;
+  bool is_readonly;
+} storage_file_info_t;
+
+typedef void (*storage_dir_callback_t)(const char *name, bool is_dir, void *user_data);
+
+typedef struct {
+  char backend_name[32];
+  char mount_point[64];
+  bool is_mounted;
+  uint64_t total_bytes;
+  uint64_t free_bytes;
+  uint64_t used_bytes;
+  uint32_t block_size;
+} storage_info_t;
+
+bool storage_file_exists(const char *path);
+esp_err_t storage_file_is_empty(const char *path, bool *empty);
+esp_err_t storage_file_get_info(const char *path, storage_file_info_t *info);
+esp_err_t storage_file_get_size(const char *path, size_t *size);
+esp_err_t storage_file_get_extension(const char *path, char *ext, size_t size);
+esp_err_t storage_file_delete(const char *path);
+esp_err_t storage_file_rename(const char *old_path, const char *new_path);
+esp_err_t storage_file_copy(const char *src, const char *dst);
+esp_err_t storage_file_move(const char *src, const char *dst);
+esp_err_t storage_file_truncate(const char *path, size_t size);
+esp_err_t storage_file_clear(const char *path);
+esp_err_t storage_file_compare(const char *path1, const char *path2, bool *equal);
+esp_err_t storage_dir_create(const char *path);
+esp_err_t storage_dir_remove(const char *path);
+esp_err_t storage_dir_remove_recursive(const char *path);
+bool storage_dir_exists(const char *path);
+esp_err_t storage_dir_is_empty(const char *path, bool *empty);
+esp_err_t storage_dir_list(const char *path, storage_dir_callback_t callback, void *user_data);
+esp_err_t storage_dir_count(const char *path, uint32_t *file_count, uint32_t *dir_count);
+esp_err_t storage_dir_copy_recursive(const char *src, const char *dst);
+esp_err_t storage_dir_get_size(const char *path, uint64_t *total_size);
+esp_err_t storage_get_info(storage_info_t *info);
+void storage_print_info_detailed(void);
+esp_err_t storage_get_free_space(uint64_t *free_bytes);
+esp_err_t storage_get_total_space(uint64_t *total_bytes);
+esp_err_t storage_get_used_space(uint64_t *used_bytes);
+esp_err_t storage_get_usage_percent(float *percentage);
+const char *storage_get_backend_type(void);
+const char *storage_get_mount_point_str(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // STORAGE_IMPL_H

@@ -1,0 +1,113 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+#include "storage_stream.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "esp_log.h"
+
+#include "storage_init.h"
+
+static const char *TAG = "STORAGE_STREAM";
+
+#define STREAM_MAX_PATH 256
+
+struct storage_stream {
+  FILE *fp;
+  size_t bytes_written;
+  char path[STREAM_MAX_PATH];
+};
+
+storage_stream_t storage_stream_open(const char *path, const char *mode) {
+  if (!storage_is_mounted() || path == NULL || mode == NULL) {
+    ESP_LOGE(TAG, "Cannot open stream: invalid args or storage not mounted");
+    return NULL;
+  }
+
+  storage_stream_t stream = calloc(1, sizeof(struct storage_stream));
+  if (stream == NULL)
+    return NULL;
+
+  stream->fp = fopen(path, mode);
+  if (stream->fp == NULL) {
+    ESP_LOGE(TAG, "Failed to open: %s", path);
+    free(stream);
+    return NULL;
+  }
+
+  strncpy(stream->path, path, sizeof(stream->path) - 1);
+  stream->bytes_written = 0;
+
+  ESP_LOGI(TAG, "Opened: %s", path);
+  return stream;
+}
+
+esp_err_t storage_stream_write(storage_stream_t stream, const void *data, size_t size) {
+  if (stream == NULL || stream->fp == NULL || data == NULL || size == 0)
+    return ESP_ERR_INVALID_ARG;
+
+  size_t written = fwrite(data, 1, size, stream->fp);
+  if (written != size) {
+    ESP_LOGE(TAG, "Write error: %zu/%zu bytes", written, size);
+    return ESP_FAIL;
+  }
+
+  stream->bytes_written += written;
+  return ESP_OK;
+}
+
+esp_err_t storage_stream_read(storage_stream_t stream, void *buf, size_t size, size_t *bytes_read) {
+  if (stream == NULL || stream->fp == NULL || buf == NULL || size == 0)
+    return ESP_ERR_INVALID_ARG;
+
+  size_t read = fread(buf, 1, size, stream->fp);
+  if (bytes_read)
+    *bytes_read = read;
+
+  return (read > 0) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t storage_stream_flush(storage_stream_t stream) {
+  if (stream == NULL || stream->fp == NULL)
+    return ESP_ERR_INVALID_ARG;
+
+  return (fflush(stream->fp) == 0) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t storage_stream_close(storage_stream_t stream) {
+  if (stream == NULL)
+    return ESP_ERR_INVALID_ARG;
+
+  esp_err_t ret = ESP_OK;
+  if (stream->fp) {
+    if (fclose(stream->fp) != 0)
+      ret = ESP_FAIL;
+  }
+
+  ESP_LOGI(TAG, "Closed: %s (%zu bytes written)", stream->path, stream->bytes_written);
+  free(stream);
+  return ret;
+}
+
+bool storage_stream_is_open(storage_stream_t stream) {
+  return (stream != NULL && stream->fp != NULL);
+}
+
+size_t storage_stream_bytes_written(storage_stream_t stream) {
+  return (stream != NULL) ? stream->bytes_written : 0;
+}

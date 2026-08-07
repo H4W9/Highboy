@@ -1,0 +1,40 @@
+// Copyright (c) 2025 HIGH CODE LLC
+//
+// TentacleOS is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// TentacleOS is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with TentacleOS. If not, see <https://www.gnu.org/licenses/>.
+
+#ifndef RFID_TYPES_H
+#define RFID_TYPES_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdint.h>
+
+/**
+ * @brief Decoded card data produced by protocol plugins.
+ */
+typedef struct {
+  const char *protocol_name;
+  uint32_t card_number;
+  uint16_t facility_code;
+  uint8_t bit_count;
+  uint64_t raw_value;
+} rfid_decoded_data_t;
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // RFID_TYPES_H
